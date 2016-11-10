@@ -53,8 +53,8 @@
       <Menu guid="guidNuGetToolMenu" id="nuGetToolMenu" type="Menu" priority="0x1000">
         <Parent guid="guidNuGetToolMenu" id="nuGetMainMenuGroup" />
         <Strings>
-          <ButtonText>NuGet Tool</ButtonText>
-          <CommandName>NuGet Tool</CommandName>
+          <ButtonText>NuGet.Extension</ButtonText>
+          <CommandName>NuGet.Extension</CommandName>
         </Strings>
       </Menu>
     </Menus>
@@ -75,7 +75,7 @@
         <Icon guid="guidImages" id="bmpPic1" />
         <CommandFlag>TextChanges</CommandFlag>
         <Strings>
-          <ButtonText>Switch between Debug/NuGet Mode</ButtonText>
+          <ButtonText>Switch to Debug (Project reference mode)</ButtonText>
         </Strings>
       </Button>
       <Button guid="guidNuGetToolMenu" id="cmdidUpgradeNuGet" priority="0x0100" type="Button">

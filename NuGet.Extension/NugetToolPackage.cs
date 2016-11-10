@@ -15,6 +15,7 @@ using Microsoft.VisualStudio.OLE.Interop;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
 using Microsoft.Win32;
+using threading = System.Threading.Tasks;
 
 namespace NuGetTool
 {
@@ -67,15 +68,16 @@ namespace NuGetTool
         /// where you can put all the initialization code that rely on services provided by VisualStudio.
         /// </summary>
         protected override void Initialize()
-        {            
+        {
             GeneralUtils.Initialize(this);
             NuGetHelper.Initialize(this);
-            ProjectUtilities.Initialize(this);
-            SwitchToDebug.Initialize(this);            
+            //ProjectUtilities.Initialize(this);
+            SwitchToDebug.Initialize(this);
             UpgradeNuGet.Initialize(this);
             UpgradeNuGetBeta.Initialize(this);
             base.Initialize();
         }
+
 
         #endregion
     }

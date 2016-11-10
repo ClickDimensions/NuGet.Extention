@@ -10,6 +10,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Globalization;
+using Newtonsoft.Json;
 
 namespace NuGetTool
 {
@@ -18,10 +19,10 @@ namespace NuGetTool
     {
         const string collectionName = "PackageSourcesVSIX";
 
-        [Category("General")]     
-        [DisplayName("Package sources")]
+        [Category("General")]
+        [DisplayName("Package setting")]
         [Description("Local repositories of the NuGet packages")]
-        public string[] PackageSources { get; set; }
+        public Setting Setting { get; set; } = new Setting();
 
         protected override IWin32Window Window
         {
@@ -44,11 +45,10 @@ namespace NuGetTool
             if (!userSettingsStore.CollectionExists(collectionName))
                 userSettingsStore.CreateCollection(collectionName);
 
-            var converter = new StringArrayConverter();
             userSettingsStore.SetString(
                 collectionName,
-                nameof(PackageSources),
-                converter.ConvertTo(this.PackageSources, typeof(string)) as string);           
+                nameof(NuGetTool.Setting),
+                JsonConvert.SerializeObject(Setting));           
         }
 
         public override void LoadSettingsFromStorage()
@@ -58,45 +58,11 @@ namespace NuGetTool
             var settingsManager = new ShellSettingsManager(ServiceProvider.GlobalProvider);
             var userSettingsStore = settingsManager.GetWritableSettingsStore(SettingsScope.UserSettings);
 
-            if (!userSettingsStore.PropertyExists(collectionName, nameof(PackageSources)))
+            if (!userSettingsStore.PropertyExists(collectionName, nameof(NuGetTool.Setting)))
                 return;
 
-            var converter = new StringArrayConverter();
-            this.PackageSources = converter.ConvertFrom(
-                userSettingsStore.GetString(collectionName, nameof(PackageSources))) as string[];
-            // load Bazes in similar way
-        }
-    }
-
-    class StringArrayConverter : TypeConverter
-    {
-        private const string delimiter = "#@#";
-
-        public override bool CanConvertFrom(ITypeDescriptorContext context, Type sourceType)
-        {
-            return sourceType == typeof(string) || base.CanConvertFrom(context, sourceType);
-        }
-
-        public override bool CanConvertTo(ITypeDescriptorContext context, Type destinationType)
-        {
-            return destinationType == typeof(string[]) || base.CanConvertTo(context, destinationType);
-        }
-
-        public override object ConvertFrom(ITypeDescriptorContext context, CultureInfo culture, object value)
-        {
-            string v = value as string;
-
-            return v == null ? base.ConvertFrom(context, culture, value) : v.Split(new[] { delimiter }, StringSplitOptions.RemoveEmptyEntries);
-        }
-
-        public override object ConvertTo(ITypeDescriptorContext context, CultureInfo culture, object value, Type destinationType)
-        {
-            string[] v = value as string[];
-            if (destinationType != typeof(string) || v == null)
-            {
-                return base.ConvertTo(context, culture, value, destinationType);
-            }
-            return string.Join(delimiter, v);
+            string json = userSettingsStore.GetString(collectionName, nameof(NuGetTool.Setting));
+            this.Setting = JsonConvert.DeserializeObject<Setting>(json);
         }
     }
 }

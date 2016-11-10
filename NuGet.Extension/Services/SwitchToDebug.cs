@@ -12,6 +12,7 @@ using Microsoft.VisualStudio.Shell.Interop;
 using System.IO;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 
 namespace NuGetTool
 {
@@ -20,9 +21,11 @@ namespace NuGetTool
     /// </summary>
     internal sealed class SwitchToDebug
     {
+        private const string PROJ_REF_MODE_TEXT = "Switch to Debug (Project reference mode)";
+        private const string NUGET_MODE_TEXT = "Switch back to Nuget mode";
         /// <summary>
         /// Command ID.
-        /// </summary>
+        /// </summary>;
         public const int CommandId = 0x0100;
 
         /// <summary>
@@ -35,8 +38,6 @@ namespace NuGetTool
         /// </summary>
         private readonly Package package;
 
-        private bool isSolutionJustLoaded = true;
-        private bool inDebugMode = false;
         private OleMenuCommand menuItem;
 
         /// <summary>
@@ -60,7 +61,7 @@ namespace NuGetTool
                 menuItem = new OleMenuCommand(this.MenuItemCallback, menuCommandID);
                 menuItem.BeforeQueryStatus += MenuItem_BeforeQueryStatus;
                 commandService.AddCommand(menuItem);
-            }            
+            }
         }
 
         private void MenuItem_BeforeQueryStatus(object sender, EventArgs e)
@@ -68,15 +69,17 @@ namespace NuGetTool
             var myCommand = sender as OleMenuCommand;
             if (myCommand != null)
             {
-                if (isSolutionJustLoaded)
-                    myCommand.Text = "Switch between Debug/NuGet modes";
-                else
+                OperationContext context = NuGetHelper.LoadNuGetPackages(false);
+                bool? debugMode = context?.Projects?.IsSolutionInDebugMode();
+                if (debugMode == null)
                 {
-                    if (inDebugMode)
-                        myCommand.Text = "Switch back to Nuget";
-                    else
-                        myCommand.Text = "Switch to Debug Mode";
-                }                
+                    myCommand.Text = "Not accessable";
+                    menuItem.Visible = false;
+                }
+                else if (debugMode.Value)
+                    myCommand.Text = NUGET_MODE_TEXT;
+                else
+                    myCommand.Text = PROJ_REF_MODE_TEXT;
             }
         }
 
@@ -106,7 +109,7 @@ namespace NuGetTool
         /// <param name="package">Owner package, not null.</param>
         public static void Initialize(Package package)
         {
-            Instance = new SwitchToDebug(package);                    
+            Instance = new SwitchToDebug(package);
         }
 
         /// <summary>
@@ -117,63 +120,90 @@ namespace NuGetTool
         /// <param name="sender">Event sender.</param>
         /// <param name="e">Event args.</param>
         private void MenuItemCallback(object sender, EventArgs e)
-        {                          
-            if (!NuGetHelper.LoadNuGetPackages())
-                return;           
+        {
+            OperationContext context = NuGetHelper.LoadNuGetPackages(false);
+            if (context == null)
+                return;
 
-            if (!ProjectUtilities.LoadProjects())
-                return;            
-
-            inDebugMode = ProjectUtilities.IsSolutionInDebugMode();
+            var inDebugMode = context.Projects.IsSolutionInDebugMode();
 
             if (!inDebugMode)
-                SwitchToDebugMode();
+                SwitchToDebugMode(context);
             else
-                SwitchToNuGetMode();
-            isSolutionJustLoaded = false;
-        }      
-        
-        private void SwitchToDebugMode()
-        {            
-            foreach (ProjectInfo project in ProjectUtilities.LoadedProjects)
-            {
-                try
-                {
-                    SwitchProjectToDebug(project);
-                }
-                catch (Exception ex)
-                {
-                    GeneralUtils.ShowMessage("Failed to convert project: " + project.Name + ", Error message: " + ex.Message, OLEMSGICON.OLEMSGICON_CRITICAL);
-                }
-            }
-
-            inDebugMode = true;        
-            GeneralUtils.ShowMessage("Conversion to debug mode finished successfully");
+                SwitchToNuGetMode(context);
         }
 
-        private void SwitchToNuGetMode()
-        {           
-            foreach (ProjectInfo project in ProjectUtilities.LoadedProjects)
-            {
-                try
-                {
-                    SwitchProjectToNuGet(project);
-                }
-                catch (Exception ex)
-                {
-                    GeneralUtils.ShowMessage("Failed to conver project: " + project.Name + ", Error message: " + ex.Message, OLEMSGICON.OLEMSGICON_CRITICAL);
-                }
-            }
+        #region SwitchToDebugMode
 
-            inDebugMode = false;
-            GeneralUtils.ShowMessage("Conversion to NuGet mode finished successfully");
-        }
-
-        private void SwitchProjectToDebug(ProjectInfo project)
+        private void SwitchToDebugMode(OperationContext context)
         {
-            UpdatePackageConfig(project);
-            UpdateProjectFile(project);           
+            using (GeneralUtils.StartAnimation())
+            using (var progress = GeneralUtils.StartProgressProgress("To Project Reference",
+                                        context.Projects.LoadedProjects.Length))
+            {
+                foreach (ProjectInfo project in context.Projects.LoadedProjects)
+                {
+                    try
+                    {
+                        progress.Increment();
+                        GeneralUtils.ReportStatus($"Switching [{project.Name}]");
+                        SwitchProjectToDebug(project, context);
+                    }
+                    catch (Exception ex)
+                    {
+                        GeneralUtils.ShowMessage("Failed to convert project: " + project.Name + ", Error message: " + ex.Message, OLEMSGICON.OLEMSGICON_CRITICAL);
+                    }
+                }
+            }
+            context.Projects.ReOpenSolution();
+            GeneralUtils.ShowMessage("Conversion to debug mode finished successfully.");
         }
+
+        #endregion // SwitchToDebugMode
+
+        #region SwitchToNuGetMode
+
+        private void SwitchToNuGetMode(OperationContext context)
+        {
+            using (GeneralUtils.StartAnimation())
+            using (var progress = GeneralUtils.StartProgressProgress("Back to NuGet",
+                                        context.Projects.LoadedProjects.Length + 1))
+            {
+                foreach (ProjectInfo project in context.Projects.LoadedProjects)
+                {
+                    try
+                    {
+                        progress.Increment();
+                        GeneralUtils.ReportStatus($"Switching [{project.Name}]");
+                        SwitchProjectToNuGet(project);
+                    }
+                    catch (Exception ex)
+                    {
+                        GeneralUtils.ShowMessage("Failed to conver project: " + project.Name + ", Error message: " + ex.Message, OLEMSGICON.OLEMSGICON_CRITICAL);
+                    }
+                }
+
+                progress.Increment();
+                context.Projects.ReOpenSolution();
+                GeneralUtils.ShowMessage("Conversion to NuGet mode finished successfully.");
+            }
+        }
+
+        #endregion // SwitchToNuGetMode
+
+        #region SwitchProjectToDebug
+
+        private void SwitchProjectToDebug(
+            ProjectInfo project,
+            OperationContext context)
+        {
+            UpdatePackageConfig(project, context);
+            UpdateProjectFile(project, context);
+        }
+
+        #endregion // SwitchProjectToDebug
+
+        #region SwitchProjectToNuGet
 
         private void SwitchProjectToNuGet(ProjectInfo project)
         {
@@ -181,56 +211,69 @@ namespace NuGetTool
             RevertBackProjectFileToNuGet(project);
         }
 
-        private void UpdatePackageConfig(ProjectInfo project)
+        #endregion // SwitchProjectToNuGet
+
+        #region UpdatePackageConfig
+
+        /// <summary>
+        /// Updates the package configuration.
+        /// Comment the NuGet which target project within the solution.
+        /// </summary>
+        /// <param name="project">The project.</param>
+        /// <param name="context">The context.</param>
+        private void UpdatePackageConfig(
+            ProjectInfo project,
+            OperationContext context)
         {
             // Comment out all NuGet packages in packages.config  
             string packagesConfigFile = Path.Combine(project.Directory, "packages.config");
-                                  
+
             if (File.Exists(packagesConfigFile))
             {
                 //string origText = File.ReadAllText(packagesConfigFile);
-                string newText = "";
+                StringBuilder newText = new StringBuilder();
 
-                using (StreamReader reader = new StreamReader(packagesConfigFile))
+                foreach (var line in File.ReadLines(packagesConfigFile))
                 {
-                    while (!reader.EndOfStream)
+                    if (line.IndexOf("<package ") == -1)
                     {
-                        string line = reader.ReadLine();
+                        newText.AppendLine(line);
+                        continue;
+                    }
 
-                        if (line.IndexOf("<package ") != -1)
-                        {
-                            // Extract the package id
-                            int idPos = line.IndexOf("id");
-                            int packageIdStartPos = line.IndexOf("\"", idPos);
-                            int packageIdEndPos = line.IndexOf("\"", packageIdStartPos + 1);
-                            string packageName = line.Substring(packageIdStartPos + 1, packageIdEndPos - packageIdStartPos - 1).Trim();
+                    // Extract the package id
+                    int idPos = line.IndexOf("id");
+                    int packageIdStartPos = line.IndexOf("\"", idPos);
+                    int packageIdEndPos = line.IndexOf("\"", packageIdStartPos + 1);
+                    string packageName = line.Substring(packageIdStartPos + 1, packageIdEndPos - packageIdStartPos - 1).Trim();
 
-                            if (ProjectUtilities.LoadedProjects.Find(p => (p.NuGetPackage != null && p.NuGetPackage.Id == packageName)) != null)
-                            {
-                                newText += "<!--NuGetTool" + line + "-->" + Environment.NewLine;
-                            }
-                            else
-                            {
-                                newText += line + Environment.NewLine;
-                            }
-                        }
-                        else
-                        {
-                            newText += line + Environment.NewLine;
-                        }
+                    if (context.Projects.LoadedProjects.Any(
+                        p => (p.Name == packageName)))
+                    {
+                        newText.AppendLine($"<!--NuGetTool{line}-->");
+                    }
+                    else
+                    {
+                        newText.AppendLine(line);
                     }
                 }
 
-                File.WriteAllText(packagesConfigFile, newText);
+                File.WriteAllText(packagesConfigFile, newText.ToString());
             }
             else
             {
-                System.Diagnostics.Debug.Write("No packages.config found in " + project.Directory);
+                if (System.Diagnostics.Debugger.IsAttached)
+                    System.Diagnostics.Debugger.Break();
+                System.Diagnostics.Trace.Write("No packages.config found in " + project.Directory);
             }
         }
 
+        #endregion // UpdatePackageConfig
+
+        #region RevertBackPackageConfigToNuGet
+
         private void RevertBackPackageConfigToNuGet(ProjectInfo project)
-        {            
+        {
             string packagesConfigFile = Path.Combine(project.Directory, "packages.config");
 
             if (File.Exists(packagesConfigFile))
@@ -244,10 +287,10 @@ namespace NuGetTool
                         string line = reader.ReadLine();
 
                         if (line.IndexOf("<!--NuGetTool") != -1)
-                        {                                               
+                        {
                             int packageStartPos = line.IndexOf("<package");
                             int packageEndPos = line.IndexOf("/>", packageStartPos + 1);
-                            string uncommentedLine = line.Substring(packageStartPos, packageEndPos - packageStartPos + 2).Trim();                            
+                            string uncommentedLine = line.Substring(packageStartPos, packageEndPos - packageStartPos + 2).Trim();
                             newText += "  " + uncommentedLine + Environment.NewLine;
                         }
                         else
@@ -265,8 +308,14 @@ namespace NuGetTool
             }
         }
 
-        private void UpdateProjectFile(ProjectInfo project)
-        {           
+        #endregion // RevertBackPackageConfigToNuGet
+
+        #region UpdateProjectFile
+
+        private void UpdateProjectFile(
+            ProjectInfo project,
+            OperationContext context)
+        {
             string newText = "";
 
             using (StreamReader reader = new StreamReader(project.ProjectFile))
@@ -286,15 +335,15 @@ namespace NuGetTool
                     {
                         // Extract the package od
                         int packageIdStartPos = line.IndexOf("\"");
-                        int packageIdEndPos = line.IndexOf(",", packageIdStartPos + 1);  
-                        
+                        int packageIdEndPos = line.IndexOf(",", packageIdStartPos + 1);
+
                         // Some of the packages are without version number (typically system packages)
                         if (packageIdEndPos == -1)
                             packageIdEndPos = line.IndexOf("\"", packageIdStartPos + 1);
 
                         string packageName = line.Substring(packageIdStartPos + 1, packageIdEndPos - packageIdStartPos - 1).Trim();
 
-                        ProjectInfo dependencyProject = ProjectUtilities.LoadedProjects.Find(p => p.AssemblyName == packageName);
+                        ProjectInfo dependencyProject = context.Projects.LoadedProjects.FirstOrDefault(p => p.AssemblyName == packageName);
                         if (dependencyProject != null)
                         {
                             newText += "<!--NuGetTool" + line + Environment.NewLine;
@@ -302,7 +351,7 @@ namespace NuGetTool
 
                             // Read until the end of the reference to close the comment
                             while (line.IndexOf("</Reference>") == -1)
-                            {                              
+                            {
                                 newText += line + Environment.NewLine;
                                 line = reader.ReadLine();
                             }
@@ -327,6 +376,10 @@ namespace NuGetTool
             File.WriteAllText(project.ProjectFile, newText);
         }
 
+        #endregion // UpdateProjectFile
+
+        #region BuildProjectReference
+
         private string BuildProjectReference(ProjectInfo project)
         {
             string projRef = "";
@@ -338,12 +391,16 @@ namespace NuGetTool
             return projRef;
         }
 
+        #endregion // BuildProjectReference
+
+        #region RevertBackProjectFileToNuGet
+
         private void RevertBackProjectFileToNuGet(ProjectInfo project)
         {
             string newText = "";
 
             using (StreamReader reader = new StreamReader(project.ProjectFile))
-            {               
+            {
                 // Remove all the project references and add the original NuGet references               
                 while (!reader.EndOfStream)
                 {
@@ -375,9 +432,9 @@ namespace NuGetTool
                         // Remove the project reference
                         line = reader.ReadLine();
                         while (line.IndexOf("</ProjectReference>") == -1)
-                        {                            
+                        {
                             line = reader.ReadLine();
-                        }                                             
+                        }
                     }
                     else
                     {
@@ -388,5 +445,7 @@ namespace NuGetTool
 
             File.WriteAllText(project.ProjectFile, newText);
         }
+
+        #endregion // RevertBackProjectFileToNuGet
     }
 }

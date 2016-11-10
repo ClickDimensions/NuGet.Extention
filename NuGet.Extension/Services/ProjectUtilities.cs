@@ -13,31 +13,43 @@ using System.Threading.Tasks;
 
 namespace NuGetTool
 {
-    class ProjectUtilities
+    internal class ProjectUtilities
     {
-        private static IServiceProvider serviceProvider;
-        private static List<ProjectInfo> projects;
+        private readonly IServiceProvider _serviceProvider;
+        private readonly List<ProjectInfo> _projects = new List<ProjectInfo>();
+        private readonly OperationContext _context;
 
-        public static List<ProjectInfo> LoadedProjects
+        #region Ctor
+
+        public ProjectUtilities(
+            OperationContext context)
         {
-            get { return projects; }
+            _serviceProvider = context.ServiceLocator;
+            _context = context;
+            LoadProjects();
         }
 
-        public static void Initialize(IServiceProvider package)
-        {
-            serviceProvider = package;
-        }       
+        #endregion // Ctor
 
-        public static bool LoadProjects()
-        {            
-            var solution = serviceProvider.GetService(typeof(SVsSolution)) as IVsSolution;
+        #region LoadedProjects
+
+        public ProjectInfo[] LoadedProjects
+        {
+            get { return _projects.ToArray(); }
+        }
+
+        #endregion // LoadedProjects
+
+        #region LoadProjects
+
+        private bool LoadProjects()
+        {
+            var solution = _serviceProvider.GetService(typeof(SVsSolution)) as IVsSolution;
             if (solution == null)
             {
                 GeneralUtils.ShowMessage("Failed to get Solution service", OLEMSGICON.OLEMSGICON_CRITICAL);
-                return false;                
+                return false;
             }
-
-            projects = new List<ProjectInfo>();
 
             IEnumHierarchies enumerator = null;
             Guid guid = Guid.Empty;
@@ -50,23 +62,29 @@ namespace NuGetTool
                 for (enumerator.Reset(); enumerator.Next(1, hierarchy, out fetched) == VSConstants.S_OK && fetched == 1; /*nothing*/)
                 {
                     // Verify that this is a project node and not a folder
-                    IVsProject project = (IVsProject)hierarchy[0];                    
+                    IVsProject project = (IVsProject)hierarchy[0];
                     string path;
                     int hr = project.GetMkDocument((uint)VSConstants.VSITEMID.Root, out path);
                     if (hr == VSConstants.S_OK)
+                    {
                         AddNewProject((IVsProject)hierarchy[0]);
+                    }
                 }
             }
             catch (Exception)
             {
                 GeneralUtils.ShowMessage("Failed to load projects info", OLEMSGICON.OLEMSGICON_CRITICAL);
-                return false;                
+                return false;
             }
             return true;
         }
 
-        private static void AddNewProject(IVsProject proj)
-        {            
+        #endregion // LoadProjects
+
+        #region AddNewProject
+
+        private void AddNewProject(IVsProject proj)
+        {
             ProjectInfo project = new ProjectInfo();
 
             project.Guid = GetProjectGuid(proj);
@@ -78,9 +96,9 @@ namespace NuGetTool
             project.RelativePath = @"..\" + project.FullName;
             project.OutputPath = GetProjectOutputPath(project.Name);
             project.InDebugMode = IsInDebugMode(proj);
-            
+
             // Find the matching NuGet package to this project
-            NuGetPackageInfo package = NuGetHelper.FindPackageByAssemblyName(project.AssemblyName);
+            NuGetPackageInfo package = FindPackageByAssemblyName(project.AssemblyName);
             if (package != null)
             {
                 project.NuGetPackage = package;
@@ -89,29 +107,41 @@ namespace NuGetTool
 
             project.NuGetPackageReferences = GetPackageReferences(project);
 
-            projects.Add(project);
+            _projects.Add(project);
         }
 
-        public static bool IsSolutionInDebugMode()
+        #endregion // AddNewProject
+
+        #region IsSolutionInDebugMode
+
+        public bool IsSolutionInDebugMode()
         {
-            foreach (ProjectInfo proj in projects)
+            foreach (ProjectInfo proj in _projects)
             {
                 if (proj.InDebugMode)
                     return true;
             }
             return false;
         }
-        
-        public static string GetProjectGuid(IVsProject project)
+
+        #endregion // IsSolutionInDebugMode
+
+        #region GetProjectGuid
+
+        public string GetProjectGuid(IVsProject project)
         {
-            var solution = serviceProvider.GetService(typeof(SVsSolution)) as IVsSolution;
+            var solution = _serviceProvider.GetService(typeof(SVsSolution)) as IVsSolution;
 
             Guid guid;
             solution.GetGuidOfProject((IVsHierarchy)project, out guid);
             return guid.ToString();
         }
 
-        public static string GetProjectName(IVsProject project)
+        #endregion // GetProjectGuid
+
+        #region GetProjectName
+
+        public string GetProjectName(IVsProject project)
         {
             var projectHierarchy = (IVsHierarchy)project;
             object projectName;
@@ -119,14 +149,22 @@ namespace NuGetTool
             return (string)projectName;
         }
 
-        public static string GetProjectFilePath(IVsProject project)
-        {           
-            string path;            
+        #endregion // GetProjectName
+
+        #region GetProjectFilePath
+
+        public string GetProjectFilePath(IVsProject project)
+        {
+            string path;
             project.GetMkDocument((uint)VSConstants.VSITEMID.Root, out path);
             return path;
         }
 
-        public static string GetAssemblyName(IVsProject project)
+        #endregion // GetProjectFilePath
+
+        #region GetAssemblyName
+
+        public string GetAssemblyName(IVsProject project)
         {
             string projectFile = GetProjectFilePath(project);
             string text = File.ReadAllText(projectFile);
@@ -136,26 +174,38 @@ namespace NuGetTool
             return assemblyName;
         }
 
-        public static bool IsInDebugMode(IVsProject project)
+        #endregion // GetAssemblyName
+
+        #region IsInDebugMode
+
+        public bool IsInDebugMode(IVsProject project)
         {
             string projectFile = GetProjectFilePath(project);
             string text = File.ReadAllText(projectFile);
 
             if (text.IndexOf("<!--DebugMode-->") == -1)
                 return false;
-            return true;            
+            return true;
         }
 
-        public static string GetProjectUniqueName(IVsProject project)
+        #endregion // IsInDebugMode
+
+        #region GetProjectUniqueName
+
+        public string GetProjectUniqueName(IVsProject project)
         {
-            var solution = serviceProvider.GetService(typeof(SVsSolution)) as IVsSolution;
+            var solution = _serviceProvider.GetService(typeof(SVsSolution)) as IVsSolution;
 
             string name;
-            solution.GetUniqueNameOfProject((IVsHierarchy)project, out name);      
+            solution.GetUniqueNameOfProject((IVsHierarchy)project, out name);
             return name;
         }
 
-        public static List<string> GetPackageReferences(ProjectInfo project)
+        #endregion // GetProjectUniqueName
+
+        #region GetPackageReferences
+
+        public List<string> GetPackageReferences(ProjectInfo project)
         {
             List<string> packagesReferences = new List<string>();
             string packagesConfigFile = Path.Combine(project.Directory, "packages.config");
@@ -163,13 +213,17 @@ namespace NuGetTool
             PackageReferenceFile file = new PackageReferenceFile(packagesConfigFile);
             foreach (PackageReference packageReference in file.GetPackageReferences())
             {
-                packagesReferences.Add(packageReference.Id);                
-            }            
+                packagesReferences.Add(packageReference.Id);
+            }
             return packagesReferences;
         }
 
-        public static Project FindProjectByName(DTE dte, string name)
-        {            
+        #endregion // GetPackageReferences
+
+        #region FindProjectByName
+
+        public Project FindProjectByName(DTE dte, string name)
+        {
             foreach (Project project in dte.Solution.Projects)
             {
                 if (project.Name == name)
@@ -181,13 +235,17 @@ namespace NuGetTool
                     {
                         return p;
                     }
-                }                
+                }
             }
             return null;
         }
 
-        public static Project FindProjectInProject(Project project, string name)
-        {            
+        #endregion // FindProjectByName
+
+        #region FindProjectInProject
+
+        public Project FindProjectInProject(Project project, string name)
+        {
             // if solution folder, one of its ProjectItems might be a real project
             foreach (ProjectItem item in project.ProjectItems)
             {
@@ -204,13 +262,17 @@ namespace NuGetTool
                         return p;
                     }
                 }
-            }            
+            }
             return null;
         }
 
-        public static string GetProjectOutputPath(string name)
+        #endregion // FindProjectInProject
+
+        #region GetProjectOutputPath
+
+        public string GetProjectOutputPath(string name)
         {
-            DTE dte = (DTE)serviceProvider.GetService(typeof(DTE));
+            DTE dte = (DTE)_serviceProvider.GetService(typeof(DTE));
             Project project = FindProjectByName(dte, name);
 
             if (project != null)
@@ -224,28 +286,83 @@ namespace NuGetTool
             {
                 GeneralUtils.ShowMessage("Project " + name + ": output path cannot be found", OLEMSGICON.OLEMSGICON_CRITICAL);
                 return null;
-            }            
-        } 
+            }
+        }
 
-        public static void CleanSolution()
+        #endregion // GetProjectOutputPath
+
+        #region CleanSolution
+
+        public void CleanSolution()
         {
-            DTE dte = (DTE)serviceProvider.GetService(typeof(DTE));
+            DTE dte = (DTE)_serviceProvider.GetService(typeof(DTE));
             SolutionBuild solutionBuild = dte.Solution.SolutionBuild;
             solutionBuild.Clean(true);
         }
-        
-        public static bool BuildProject(ProjectInfo project)
-        {
-            DTE dte = (DTE)serviceProvider.GetService(typeof(DTE));
-            SolutionBuild solutionBuild = dte.Solution.SolutionBuild;
-            
-            string solutionConfiguration = solutionBuild.ActiveConfiguration.Name;
-           
-            solutionBuild.BuildProject(solutionConfiguration, project.FullName, true);           
 
-            bool compiledOK = (solutionBuild.LastBuildInfo == 0);            
+        #endregion // CleanSolution
+
+        #region ReOpenSolution
+
+        public void ReOpenSolution()
+        {
+            DTE dte = (DTE)_serviceProvider.GetService(typeof(DTE));
+            string solutionFileName = dte.Solution.FileName;
+            dte.Solution.Close();
+            dte.Solution.Open(solutionFileName);
+        }
+
+        #endregion // ReOpenSolution
+
+        #region BuildProject
+
+        public bool BuildProject(ProjectInfo project)
+        {
+            DTE dte = (DTE)_serviceProvider.GetService(typeof(DTE));
+            SolutionBuild solutionBuild = dte.Solution.SolutionBuild;
+
+            string solutionConfiguration = solutionBuild.ActiveConfiguration.Name;
+
+            GeneralUtils.ReportStatus($"Build: {project.Name}");
+
+            solutionBuild.BuildProject(solutionConfiguration, project.FullName, true);
+            bool compiledOK = (solutionBuild.LastBuildInfo == 0);
+            if (!compiledOK && System.Diagnostics.Debugger.IsAttached)
+                System.Diagnostics.Debugger.Break();
             return compiledOK;
-        }             
-                
+        }
+
+        #endregion // BuildProject
+
+        #region BuildSolution
+
+        public bool BuildSolution()
+        {
+            DTE dte = (DTE)_serviceProvider.GetService(typeof(DTE));
+            SolutionBuild solutionBuild = dte.Solution.SolutionBuild;
+
+            string solutionConfiguration = solutionBuild.ActiveConfiguration.Name;
+          
+            solutionBuild.Build(true);
+            bool compiledOK = (solutionBuild.LastBuildInfo == 0);
+            if (!compiledOK && System.Diagnostics.Debugger.IsAttached)
+                System.Diagnostics.Debugger.Break();
+            return compiledOK;
+        }
+
+        #endregion // BuildSolution
+
+        #region FindPackageByAssemblyName
+
+        private NuGetPackageInfo FindPackageByAssemblyName(
+            string assemblyName)
+        {
+            NuGetPackageInfo package = (from p in _context.PackagesInfo
+                                        where p.AssemblyName == assemblyName
+                                        select p).FirstOrDefault();
+            return package;
+        }
+
+        #endregion // FindPackageByAssemblyName
     }
 }

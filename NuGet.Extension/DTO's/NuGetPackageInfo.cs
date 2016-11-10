@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 
 namespace NuGetTool
 {
-    class NuGetPackageInfo
+    internal class NuGetPackageInfo
     {
         public string Id { get; set; }
         public string Version { get; set; }

@@ -93,18 +93,6 @@ namespace NuGetTool
         /// <param name="e">Event args.</param>
         private void MenuItemCallback(object sender, EventArgs e)
         {
-            if (!NuGetHelper.LoadNuGetPackages())
-                return;
-
-            if (!ProjectUtilities.LoadProjects())
-                return;
-
-            if (ProjectUtilities.IsSolutionInDebugMode())
-            {
-                GeneralUtils.ShowMessage("Solution is in debug mode. Switch back to NuGet mode before updating the packages.", OLEMSGICON.OLEMSGICON_WARNING);
-                return;
-            }
-
             NuGetHelper.UpdateNuGetPackages(false);
         }
     }
