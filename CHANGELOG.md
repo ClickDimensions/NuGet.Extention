@@ -9,7 +9,7 @@
 - [ ] Support multiple progress bar report
 - [ ] Create Nuget package from new project (which don't have package yet)
 - [ ] Unchackout project that has not changed after moving back to NuGet (calculate the file hash)
-- [ ] 
+- [ ] Disable NuGet Operations when some of the project not loaded
 - [ ] 
 - [ ] 
 
