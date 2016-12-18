@@ -7,7 +7,7 @@ using System.Reactive.Disposables;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace NuGetTool
+namespace NuGetTool.Services
 {
     class GeneralUtils
     {

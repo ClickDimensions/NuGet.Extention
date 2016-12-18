@@ -13,6 +13,7 @@ using System.IO;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using NuGetTool.Services;
 
 namespace NuGetTool
 {
@@ -69,7 +70,8 @@ namespace NuGetTool
             var myCommand = sender as OleMenuCommand;
             if (myCommand != null)
             {
-                OperationContext context = NuGetHelper.LoadNuGetPackages(false);
+                OperationContext context = NuGetHelper.LoadNuGetPackages(false);                                
+
                 bool? debugMode = context?.Projects?.IsSolutionInDebugMode();
                 if (debugMode == null)
                 {

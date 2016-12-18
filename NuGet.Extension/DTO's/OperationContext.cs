@@ -1,5 +1,6 @@
 ﻿using EnvDTE;
 using NuGet;
+using NuGetTool.Services;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;

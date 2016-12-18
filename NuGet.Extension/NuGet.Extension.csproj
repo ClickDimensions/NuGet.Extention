@@ -64,7 +64,8 @@
     <Compile Include="DTO%27s\ProjectInfo.cs" />
     <Compile Include="Services\ProjectUtilities.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="Services\SwitchToDebug.cs" />
+    <Compile Include="Services\SolutionMonitor.cs" />
+    <Compile Include="SwitchToDebug.cs" />
     <Compile Include="NuGetToolPackage.cs" />
     <Compile Include="Visual\ToolOptionsUserControl.cs">
       <SubType>UserControl</SubType>

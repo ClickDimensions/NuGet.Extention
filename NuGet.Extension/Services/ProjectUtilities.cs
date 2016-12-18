@@ -11,7 +11,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace NuGetTool
+namespace NuGetTool.Services
 {
     internal class ProjectUtilities
     {
@@ -50,6 +50,10 @@ namespace NuGetTool
                 GeneralUtils.ShowMessage("Failed to get Solution service", OLEMSGICON.OLEMSGICON_CRITICAL);
                 return false;
             }
+
+            // Verify that the solution and all its projects are fully loaded
+            var solution4 = _serviceProvider.GetService(typeof(SVsSolution)) as IVsSolution4;
+            solution4.EnsureSolutionIsLoaded(0);
 
             IEnumHierarchies enumerator = null;
             Guid guid = Guid.Empty;

@@ -17,7 +17,7 @@ using System.Text;
 using System.Windows.Forms;
 using System.Xml.Linq;
 
-namespace NuGetTool
+namespace NuGetTool.Services
 {
     // use Ctrl + m + o in order to collapse all regions
 
@@ -56,14 +56,12 @@ namespace NuGetTool
                 }
             }
             #region Exception Handling
-
             catch (Exception ex)
             {
                 System.Diagnostics.Trace.WriteLine($"Setting not found {ex}");
                 GeneralUtils.ShowMessage("Packages sources are not defined. Use Tools->Options->NuGet.Extension to define the sources", OLEMSGICON.OLEMSGICON_WARNING);
                 return null;
             }
-
             #endregion // Exception Handling
 
             try
@@ -86,7 +84,6 @@ namespace NuGetTool
         #endregion // LoadNuGetPackages
 
         #region UpdateNuGetPackages
-
         public static void UpdateNuGetPackages(bool preRelease)
         {
             using (GeneralUtils.StartAnimation())
@@ -127,13 +124,11 @@ with no errors, befor NuGet upgrade!");
                                            select p).ToList();
 
                     #region Validation
-
                     if (packagesToBuild.Count == 0)
                     {
                         GeneralUtils.ShowMessage("No NuGet package needs to be updated");
                         return;
                     }
-
                     #endregion // Validation
 
                     //RemoveCachedNuGetFiles();
@@ -187,15 +182,14 @@ with no errors, befor NuGet upgrade!");
                     GeneralUtils.ReportStatus($"NuGet: Re-open projects");
                     context.Projects.ReOpenSolution();
 
-                     progress.Report(8);
-                   #region Clipboard.SetText(context.ArchiveFolder)
+                    progress.Report(8);
 
+                    #region Clipboard.SetText(context.ArchiveFolder)
                     try
                     {
                         Clipboard.SetText(context.ArchiveFolder);
                     }
                     catch { }
-
                     #endregion // Clipboard.SetText(context.ArchiveFolder)
 
                     GeneralUtils.ShowMessage($@"{context.PackagesUpdatedSoFar.Count} NuGet packages have been updated
@@ -203,9 +197,7 @@ Old packages moved to [{context.ArchiveFolder}] + copied to the clipboard");
                 }
                 catch (FileNotFoundException ex)
                 {
-                    MessageBox.Show($@"Make sure to build the solution before running the tool
-
-{ex}", "ERROR", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    MessageBox.Show($@"Make sure to build the solution before running the tool{ex}", "ERROR", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
                 catch (Exception ex)
                 {
@@ -217,7 +209,6 @@ Old packages moved to [{context.ArchiveFolder}] + copied to the clipboard");
         #endregion // UpdateNuGetPackages
 
         #region Rollback
-
         private static void Rollback(
             OperationContext context)
         {
@@ -248,11 +239,9 @@ Old packages moved to [{context.ArchiveFolder}] + copied to the clipboard");
             Directory.Delete(context.ArchiveSession);
             GeneralUtils.ShowMessage($"{context.RecoveredPackages.Count} NuGet packages have been restored");
         }
-
         #endregion // Rollback
 
         #region RollbackPackage
-
         private static string RollbackPackage(
             NuGetPackageInfo packageInfo,
             OperationContext context)
@@ -278,11 +267,9 @@ Old packages moved to [{context.ArchiveFolder}] + copied to the clipboard");
                 return ex.Message;
             }
         }
-
         #endregion // RollbackPackage
 
         #region RecoverOldVersionFromArchive
-
         private static void RecoverOldVersionFromArchive(
             NuGetPackageInfo packageInfo,
             OperationContext context)
@@ -297,11 +284,9 @@ Old packages moved to [{context.ArchiveFolder}] + copied to the clipboard");
             string newPackagePath = Path.Combine(packageInfo.RepositoryPath, packageInfo.NewPackageName);
             File.Delete(newPackagePath);
         }
-
         #endregion // RecoverOldVersionFromArchive
 
         #region BuildProjectsWithNoPackages
-
         private static void BuildProjectsWithNoPackages(
             OperationContext context)
         {
@@ -325,11 +310,9 @@ Old packages moved to [{context.ArchiveFolder}] + copied to the clipboard");
                 }
             }
         }
-
         #endregion // BuildProjectsWithNoPackages
 
         #region UpdatePackage
-
         private static string UpdatePackage(
             NuGetPackageInfo packageInfo,
             OperationContext context)
@@ -371,11 +354,9 @@ Old packages moved to [{context.ArchiveFolder}] + copied to the clipboard");
                 return ex.ToString();
             }
         }
-
         #endregion // UpdatePackage
 
         #region CreateNuGet
-
         private static bool CreateNuGet(
             NuGetPackageInfo packageInfo,
             ProjectInfo project,
@@ -413,11 +394,9 @@ Old packages moved to [{context.ArchiveFolder}] + copied to the clipboard");
             }
             return true;
         }
-
         #endregion // CreateNuGet
 
         #region CreateManifestFiles
-
         private static IEnumerable<ManifestFile> CreateManifestFiles(string source,
             IEnumerable<IPackageFile> packageFiles)
         {
@@ -433,11 +412,9 @@ Old packages moved to [{context.ArchiveFolder}] + copied to the clipboard");
             }
             return manifestFiles;
         }
-
         #endregion // CreateManifestFiles
 
         #region CreateManifestCotentsFiles
-
         private static List<ManifestFile> CreateManifestCotentsFiles(IPackage package, string destination)
         {
             List<ManifestFile> manifestFiles = new List<ManifestFile>();
@@ -456,17 +433,14 @@ Old packages moved to [{context.ArchiveFolder}] + copied to the clipboard");
         #endregion // CreateManifestCotentsFiles
 
         #region ExtractContent
-
         private static void ExtractContent(IPackage package, string filePath)
         {
             if (!Directory.Exists(Path.Combine(filePath, package.Id)))
                 package.ExtractContents(new PhysicalFileSystem(filePath), package.Id);
         }
-
         #endregion // ExtractContent
 
         #region CreateManifestMetadata
-
         private static ManifestMetadata CreateManifestMetadata(IPackage package, ProjectInfo project, string source, string destination, bool preRelease)
         {
             string version = GetVersion(package, project, source, preRelease);
@@ -487,11 +461,9 @@ Old packages moved to [{context.ArchiveFolder}] + copied to the clipboard");
 
             return metadata;
         }
-
         #endregion // CreateManifestMetadata
 
         #region GetVersion
-
         private static string GetVersion(
             IPackage package,
             ProjectInfo project,
@@ -514,21 +486,17 @@ You have to increment the assembly version before this process");
                 targetVersion += "-beta";
             return targetVersion;
         }
-
         #endregion // GetVersion
 
         #region GetAssemblyVersion
-
         private static Version GetAssemblyVersion(string assemblyPath)
         {
             Version version = AssemblyName.GetAssemblyName(assemblyPath).Version;
             return version;
         }
-
         #endregion // GetAssemblyVersion
 
         #region CreateManifestDependencySet
-
         private static List<ManifestDependencySet> CreateManifestDependencySet(IPackage package, string destination)
         {
             List<ManifestDependencySet> depSetList = new List<ManifestDependencySet>();
@@ -551,11 +519,9 @@ You have to increment the assembly version before this process");
             depSetList.Add(depSet);
             return depSetList;
         }
-
         #endregion // CreateManifestDependencySet
 
         #region GetLatestPackageVersion
-
         private static string GetLatestPackageVersion(string dependencyId, string dependencyVersion, string destination)
         {
             string lastVersion = dependencyVersion;
@@ -570,11 +536,9 @@ You have to increment the assembly version before this process");
             }
             return lastVersion;
         }
-
         #endregion // GetLatestPackageVersion
 
         #region AddBuildEvents
-
         private static IDisposable AddBuildEvents(
             ProjectInfo project,
             OperationContext context,
@@ -619,11 +583,9 @@ You have to increment the assembly version before this process");
             var result = Disposable.Create(() => RemoveBuildEvents(project));
             return result;
         }
-
         #endregion // AddBuildEvents
 
         #region RemoveBuildEvents
-
         private static void RemoveBuildEvents(ProjectInfo project)
         {
             string text = File.ReadAllText(project.ProjectFile);
@@ -632,11 +594,9 @@ You have to increment the assembly version before this process");
 
             File.WriteAllText(project.ProjectFile, text);
         }
-
         #endregion // RemoveBuildEvents
 
         #region MoveOldVersionToArchive
-
         private static void MoveOldVersionToArchive(
             NuGetPackageInfo packageInfo,
             OperationContext context)
@@ -661,11 +621,9 @@ You have to increment the assembly version before this process");
                 throw new Exception(@"Fail to archive old NuGets", ex);
             }
         }
-
         #endregion // MoveOldVersionToArchive
 
         #region CreateArchiveZipFile
-
         private static void CreateArchiveZipFile(string archiveFolder)
         {
             try
@@ -681,7 +639,6 @@ You have to increment the assembly version before this process");
                 MessageBox.Show($"Fail to create Archive, Check if [{archiveFolder}] is valid path", "ERROR", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
-
         #endregion // CreateArchiveZipFile
 
         /*private static void RemoveCachedNuGetFiles()
@@ -691,6 +648,5 @@ You have to increment the assembly version before this process");
                 Directory.Delete(cachePath, true);
             }
         }*/
-
     }
 }
