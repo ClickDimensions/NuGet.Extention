@@ -110,11 +110,10 @@ namespace NuGetTool.Services
 
                     if (!context.Projects.BuildSolution())
                     {
-                        GeneralUtils.ShowMessage(@"Make sure that the solution is build 
-with no errors, befor NuGet upgrade!");
+                        GeneralUtils.ShowMessage(@"Make sure that the solution is built
+with no errors, before NuGet upgrade!");
                         return;
                     }
-
                     #endregion // Validation
 
                     // Build only packages with corresponding projects 
@@ -142,10 +141,10 @@ with no errors, befor NuGet upgrade!");
                             currentProgress.Report(i);
                             NuGetPackageInfo p = packagesToBuild[i];
                             GeneralUtils.ReportStatus($"CurrentPackage = {p.Name}");
-
+                                                       
                             string errorMsg = UpdatePackage(p, context);
-                            #region Exception Handling (Abort, Retry, Ignore)
 
+                            #region Exception Handling (Abort, Retry, Ignore)
                             if (errorMsg != null)
                             {
                                 string msg = $"Failed to update package {p.Id}. Error: {errorMsg}.\n{context.PackagesUpdatedSoFar.Count} NuGet packages have been updated so far.\nChoose Abort to stop the process and rollback, Ignore to continue updating the other packages, and Retry to try again from current stage.";
@@ -162,7 +161,6 @@ with no errors, befor NuGet upgrade!");
                                         continue;
                                 }
                             }
-
                             #endregion // Exception Handling (Abort, Retry, Ignore)
                         }
                         currentProgress.Report(packagesToBuild.Count);
@@ -320,6 +318,13 @@ Old packages moved to [{context.ArchiveFolder}] + copied to the clipboard");
             try
             {
                 ProjectInfo project = packageInfo.ProjectInfo;
+
+                string errorMsg = VerifyProjectReadyForUpgrade(project);
+                if (errorMsg != null)
+                {
+                    return errorMsg;
+                }
+
                 using (AddBuildEvents(project, context, context.PackagesUpdatedSoFar))
                 {
                     if (!context.Projects.BuildProject(project))
@@ -355,6 +360,16 @@ Old packages moved to [{context.ArchiveFolder}] + copied to the clipboard");
             }
         }
         #endregion // UpdatePackage
+
+        private static string VerifyProjectReadyForUpgrade(ProjectInfo project)
+        {
+            // Check that there is no more than one csproj file
+            if (Directory.GetFiles(project.Directory, "*.csproj").Count() > 1)
+            {
+                return $"The folder {project.Directory} contains more than one csproj file";
+            }
+            return null;
+        }
 
         #region CreateNuGet
         private static bool CreateNuGet(
