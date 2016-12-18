@@ -32,16 +32,13 @@ namespace NuGetTool.Services
         #endregion // Ctor
 
         #region LoadedProjects
-
         public ProjectInfo[] LoadedProjects
         {
             get { return _projects.ToArray(); }
         }
-
         #endregion // LoadedProjects
 
         #region LoadProjects
-
         private bool LoadProjects()
         {
             var solution = _serviceProvider.GetService(typeof(SVsSolution)) as IVsSolution;
@@ -82,11 +79,9 @@ namespace NuGetTool.Services
             }
             return true;
         }
-
         #endregion // LoadProjects
 
         #region AddNewProject
-
         private void AddNewProject(IVsProject proj)
         {
             ProjectInfo project = new ProjectInfo();
@@ -113,11 +108,9 @@ namespace NuGetTool.Services
 
             _projects.Add(project);
         }
-
         #endregion // AddNewProject
 
         #region IsSolutionInDebugMode
-
         public bool IsSolutionInDebugMode()
         {
             foreach (ProjectInfo proj in _projects)
@@ -140,11 +133,9 @@ namespace NuGetTool.Services
             solution.GetGuidOfProject((IVsHierarchy)project, out guid);
             return guid.ToString();
         }
-
         #endregion // GetProjectGuid
 
         #region GetProjectName
-
         public string GetProjectName(IVsProject project)
         {
             var projectHierarchy = (IVsHierarchy)project;
@@ -152,7 +143,6 @@ namespace NuGetTool.Services
             ErrorHandler.ThrowOnFailure(projectHierarchy.GetProperty((uint)VSConstants.VSITEMID_ROOT, (int)__VSHPROPID.VSHPROPID_Name, out projectName));
             return (string)projectName;
         }
-
         #endregion // GetProjectName
 
         #region GetProjectFilePath
