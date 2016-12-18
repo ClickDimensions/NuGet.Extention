@@ -9,6 +9,7 @@ using System.ComponentModel.Design;
 using System.Globalization;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
+using NS_TRD = System.Threading;
 
 namespace NuGetTool
 {
@@ -50,7 +51,7 @@ namespace NuGetTool
             if (commandService != null)
             {
                 var menuCommandID = new CommandID(CommandSet, CommandId);
-                var menuItem = new MenuCommand(this.MenuItemCallback, menuCommandID);
+                var menuItem = new MenuCommand(this.OnUpdateNuGetPackages, menuCommandID);
                 commandService.AddCommand(menuItem);
             }
         }
@@ -91,9 +92,12 @@ namespace NuGetTool
         /// </summary>
         /// <param name="sender">Event sender.</param>
         /// <param name="e">Event args.</param>
-        private void MenuItemCallback(object sender, EventArgs e)
+        private void OnUpdateNuGetPackages(object sender, EventArgs e)
         {
             NuGetHelper.UpdateNuGetPackages(false);
+            //NS_TRD.Tasks.Task.Factory.StartNew(() =>
+            //    NuGetHelper.UpdateNuGetPackages(false),
+            //    NS_TRD.Tasks.TaskCreationOptions.LongRunning);
         }
     }
 }

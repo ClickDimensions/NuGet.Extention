@@ -4,21 +4,22 @@ using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
 using NuGet;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using TRD = System.Threading;
 
 namespace NuGetTool
 {
     internal class ProjectUtilities
     {
         private readonly IServiceProvider _serviceProvider;
-        private readonly List<ProjectInfo> _projects = new List<ProjectInfo>();
+        private readonly ConcurrentDictionary<string, ProjectInfo> _projects = new ConcurrentDictionary<string, ProjectInfo>();
         private readonly OperationContext _context;
-
         #region Ctor
 
         public ProjectUtilities(
@@ -35,10 +36,48 @@ namespace NuGetTool
 
         public ProjectInfo[] LoadedProjects
         {
-            get { return _projects.ToArray(); }
+            get { return _projects.Values.ToArray(); }
         }
 
         #endregion // LoadedProjects
+
+        public static bool IsInDebugMode(IServiceProvider serviceProvider)
+        {
+            var solution = serviceProvider.GetService(typeof(SVsSolution)) as IVsSolution;
+            if (solution == null)
+            {
+                GeneralUtils.ShowMessage("Failed to get Solution service", OLEMSGICON.OLEMSGICON_CRITICAL);
+                return false;
+            }
+
+            IEnumHierarchies enumerator = null;
+            Guid guid = Guid.Empty;
+            solution.GetProjectEnum((uint)__VSENUMPROJFLAGS.EPF_LOADEDINSOLUTION, ref guid, out enumerator);
+            IVsHierarchy[] hierarchy = new IVsHierarchy[1] { null };
+            uint fetched = 0;
+            try
+            {
+                for (enumerator.Reset(); enumerator.Next(1, hierarchy, out fetched) == VSConstants.S_OK && fetched == 1; /*nothing*/)
+                {
+                    // Verify that this is a project node and not a folder
+                    IVsProject project = (IVsProject)hierarchy[0];
+                    string path;
+                    int hr = project.GetMkDocument((uint)VSConstants.VSITEMID.Root, out path);
+                    if (hr == VSConstants.S_OK)
+                    {
+                        if (IsInDebugMode(project))
+                            return true;
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                GeneralUtils.ShowMessage("Failed to load projects info", OLEMSGICON.OLEMSGICON_CRITICAL);
+                return false;
+            }
+            return false;
+        }
+
 
         #region LoadProjects
 
@@ -67,7 +106,7 @@ namespace NuGetTool
                     int hr = project.GetMkDocument((uint)VSConstants.VSITEMID.Root, out path);
                     if (hr == VSConstants.S_OK)
                     {
-                        AddNewProject((IVsProject)hierarchy[0]);
+                        AddNewProject(project);
                     }
                 }
             }
@@ -83,31 +122,34 @@ namespace NuGetTool
 
         #region AddNewProject
 
+        /// <summary>
+        /// Adds the new project information.
+        /// </summary>
+        /// <param name="proj">The project.</param>
         private void AddNewProject(IVsProject proj)
         {
-            ProjectInfo project = new ProjectInfo();
+            string guid = GetProjectGuid(proj);
+            string name = GetProjectName(proj);
+            string projectFile = GetProjectFilePath(proj);
+            string assemblyName = GetAssemblyName(proj);
+            string fullName = GetProjectUniqueName(proj);
+            string outputPath = GetProjectOutputPath(name);
+            bool inDebugMode = IsInDebugMode(proj);
 
-            project.Guid = GetProjectGuid(proj);
-            project.Name = GetProjectName(proj);
-            project.ProjectFile = GetProjectFilePath(proj);
-            project.Directory = Path.GetDirectoryName(project.ProjectFile);
-            project.AssemblyName = GetAssemblyName(proj);
-            project.FullName = GetProjectUniqueName(proj);
-            project.RelativePath = @"..\" + project.FullName;
-            project.OutputPath = GetProjectOutputPath(project.Name);
-            project.InDebugMode = IsInDebugMode(proj);
+            ProjectInfo project = new ProjectInfo(
+                guid, name, projectFile, assemblyName, fullName, 
+                outputPath, inDebugMode);
 
             // Find the matching NuGet package to this project
-            NuGetPackageInfo package = FindPackageByAssemblyName(project.AssemblyName);
+            NuGetPackageInfo package = FindPackageByAssemblyName(assemblyName);
             if (package != null)
             {
                 project.NuGetPackage = package;
                 package.ProjectInfo = project;
             }
-
             project.NuGetPackageReferences = GetPackageReferences(project);
 
-            _projects.Add(project);
+            _projects.TryAdd(project.AssemblyName, project);
         }
 
         #endregion // AddNewProject
@@ -116,7 +158,7 @@ namespace NuGetTool
 
         public bool IsSolutionInDebugMode()
         {
-            foreach (ProjectInfo proj in _projects)
+            foreach (ProjectInfo proj in _projects.Values)
             {
                 if (proj.InDebugMode)
                     return true;
@@ -153,7 +195,7 @@ namespace NuGetTool
 
         #region GetProjectFilePath
 
-        public string GetProjectFilePath(IVsProject project)
+        private static string GetProjectFilePath(IVsProject project)
         {
             string path;
             project.GetMkDocument((uint)VSConstants.VSITEMID.Root, out path);
@@ -178,14 +220,20 @@ namespace NuGetTool
 
         #region IsInDebugMode
 
-        public bool IsInDebugMode(IVsProject project)
+        /// <summary>
+        /// Determines whether [is in debug mode] [the specified project].
+        /// </summary>
+        /// <param name="project">The project.</param>
+        /// <returns>
+        ///   <c>true</c> if [is in debug mode] [the specified project]; otherwise, <c>false</c>.
+        /// </returns>
+        private static bool IsInDebugMode(IVsProject project)
         {
             string projectFile = GetProjectFilePath(project);
-            string text = File.ReadAllText(projectFile);
+            bool isDebugMode = File.ReadLines(projectFile)
+                                    .Any(line => line.IndexOf("<!--DebugMode-->") != -1);
 
-            if (text.IndexOf("<!--DebugMode-->") == -1)
-                return false;
-            return true;
+            return isDebugMode;
         }
 
         #endregion // IsInDebugMode
@@ -219,6 +267,24 @@ namespace NuGetTool
         }
 
         #endregion // GetPackageReferences
+
+
+        #region FindProjectByName
+
+        /// <summary>
+        /// Find project by matching a assembly name.
+        /// </summary>
+        /// <param name="AssemblyName">Name of the assembly.</param>
+        /// <returns></returns>
+        public ProjectInfo FindProjectByAssemblyName(string assemblyName)
+        {
+            ProjectInfo p;
+            if (_projects.TryGetValue(assemblyName, out p))
+                return p;
+            return null;
+        }
+
+        #endregion // FindProjectByName
 
         #region FindProjectByName
 
@@ -316,7 +382,7 @@ namespace NuGetTool
 
         #region BuildProject
 
-        public bool BuildProject(ProjectInfo project)
+        public async Task<bool> BuildProject(ProjectInfo project)
         {
             DTE dte = (DTE)_serviceProvider.GetService(typeof(DTE));
             SolutionBuild solutionBuild = dte.Solution.SolutionBuild;
@@ -325,7 +391,10 @@ namespace NuGetTool
 
             GeneralUtils.ReportStatus($"Build: {project.Name}");
 
-            solutionBuild.BuildProject(solutionConfiguration, project.FullName, true);
+            await TRD.Tasks.Task.Factory.StartNew(() =>
+                        solutionBuild.BuildProject(solutionConfiguration, project.FullName, true),
+                        TaskCreationOptions.LongRunning);
+
             bool compiledOK = (solutionBuild.LastBuildInfo == 0);
             if (!compiledOK && System.Diagnostics.Debugger.IsAttached)
                 System.Diagnostics.Debugger.Break();
@@ -336,17 +405,17 @@ namespace NuGetTool
 
         #region BuildSolution
 
-        public bool BuildSolution()
+        public async Task<bool> BuildSolution()
         {
             DTE dte = (DTE)_serviceProvider.GetService(typeof(DTE));
             SolutionBuild solutionBuild = dte.Solution.SolutionBuild;
 
             string solutionConfiguration = solutionBuild.ActiveConfiguration.Name;
-          
-            solutionBuild.Build(true);
+            
+            await TRD.Tasks.Task.Factory.StartNew(() =>
+                            solutionBuild.Build(true),
+                            TaskCreationOptions.LongRunning);
             bool compiledOK = (solutionBuild.LastBuildInfo == 0);
-            if (!compiledOK && System.Diagnostics.Debugger.IsAttached)
-                System.Diagnostics.Debugger.Break();
             return compiledOK;
         }
 

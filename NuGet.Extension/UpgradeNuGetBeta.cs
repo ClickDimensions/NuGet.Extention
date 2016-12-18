@@ -9,6 +9,7 @@ using System.ComponentModel.Design;
 using System.Globalization;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
+using NS_TRD = System.Threading;
 
 namespace NuGetTool
 {
@@ -94,6 +95,9 @@ namespace NuGetTool
         private void MenuItemCallback(object sender, EventArgs e)
         {
             NuGetHelper.UpdateNuGetPackages(true);
+            //NS_TRD.Tasks.Task.Factory.StartNew(() =>
+            //    NuGetHelper.UpdateNuGetPackages(true),
+            //    NS_TRD.Tasks.TaskCreationOptions.LongRunning);
         }
     }
 }

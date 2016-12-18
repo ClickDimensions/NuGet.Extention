@@ -45,7 +45,7 @@ namespace NuGetTool
         public readonly string CacheFolder;
         public string ArchiveFolder => _setting.BackupArchiveFolder;
         public string ArchiveSession => $@"{ArchiveFolder}\{_startAt}";
-        public readonly List<NuGetPackageInfo> PackagesInfo = new List<NuGetPackageInfo>();
+        public NuGetPackageInfo[] PackagesInfo;// = new List<NuGetPackageInfo>();
         public readonly List<NuGetPackageInfo> PackagesUpdatedSoFar = new List<NuGetPackageInfo>();
         public readonly List<NuGetPackageInfo> RecoveredPackages = new List<NuGetPackageInfo>();
 
@@ -75,47 +75,54 @@ namespace NuGetTool
         /// <summary>
         /// Loads build and sort the packages information.
         /// </summary>
-        /// <param name="context">The context.</param>
-        private void PreparePackagesInfo()
+        /// <param name="preRelease">if set to <c>true</c> [pre release].</param>
+        private void PreparePackagesInfo(/*bool preRelease*/)
         {
             try
             {
-                List<LocalPackageRepository> repositories = new List<LocalPackageRepository>();
+                #region AggregateRepository nugetRepositories = ...
 
+                List<LocalPackageRepository> repositories = new List<LocalPackageRepository>();
                 foreach (string source in PackagesSources)
                 {
                     LocalPackageRepository repository = new LocalPackageRepository(source);
                     repositories.Add(repository);
                 }
-                AggregateRepository aggregateRepository = new AggregateRepository(repositories);
+                AggregateRepository nugetRepositories = new AggregateRepository(repositories);
+
+                #endregion // AggregateRepository nugetRepositories = ...
 
                 string targetFramework = ((TargetFrameworkAttribute)Assembly.GetExecutingAssembly().GetCustomAttributes(typeof(TargetFrameworkAttribute), false)[0]).FrameworkName;
                 string frameWorkVersion = targetFramework.Substring(targetFramework.LastIndexOf("v") + 1);
 
                 var frameworkName = new FrameworkName(frameWorkVersion, Version.Parse(frameWorkVersion));
-                PackageSorter sorter = new PackageSorter(frameworkName);
-                var packages = sorter.GetPackagesByDependencyOrder(aggregateRepository).AsCollapsed();
-
-                foreach (IPackage p in packages)
-                {
-                    NuGetPackageInfo packageInfo = new NuGetPackageInfo();
-                    packageInfo.Id = p.Id;
-                    packageInfo.Name = p.GetFullName();
-                    packageInfo.Version = p.Version.ToNormalizedString();
-                    packageInfo.PackageFileName = $"{packageInfo.Id}.{packageInfo.Version}.nupkg";
-                    packageInfo.NuGetPackage = p;
-                    packageInfo.RepositoryPath =
-                        FindPackagePath(packageInfo);
-
-                    foreach (IPackageFile file in p.GetFiles())
+                PackageSorter sorter = new PackageSorter(frameworkName)
                     {
-                        if (file.EffectivePath.EndsWith(".dll"))
-                        {
-                            packageInfo.AssemblyName = Path.GetFileNameWithoutExtension(file.EffectivePath);
-                        }
-                    }
-                    PackagesInfo.Add(packageInfo);
-                }
+                        //DependencyVersion = preRelease ? DependencyVersion.HighestPatch : DependencyVersion.Highest,
+                    }; 
+                 var packages = from nuget in sorter.GetPackagesByDependencyOrder(nugetRepositories)
+                                                   //.Where(m => preRelease ? m.IsAbsoluteLatestVersion : m.IsLatestVersion)
+                                                    .AsCollapsed()
+                               group nuget by nuget.Id into g
+                               let p = g.Last()
+                               let version = p.Version
+                               let assemblyName = p.GetFiles()
+                                                .Select(f => f.EffectivePath)
+                                                .Where(path => path.EndsWith(".dll"))
+                                                .Select(path => Path.GetFileNameWithoutExtension(path))
+                                                .FirstOrDefault()
+                               let packageFileName = $"{p.Id}.{version}.nupkg"
+                               select new NuGetPackageInfo
+                                            {
+                                                Id = p.Id,
+                                                Name = p.GetFullName(),
+                                                Version = version.ToNormalizedString(),
+                                                PackageFileName = packageFileName,
+                                                NuGetPackage = p,
+                                                RepositoryPath =  FindPackagePath(packageFileName),
+                                                AssemblyName = assemblyName
+                               };
+                PackagesInfo = packages.ToArray();
             }
             catch (Exception ex)
             {
@@ -127,19 +134,24 @@ namespace NuGetTool
 
         #region FindPackagePath
 
+        /// <summary>
+        /// Finds the path of the package .
+        /// </summary>
+        /// <param name="packageName">Name of the package.</param>
+        /// <returns></returns>
         private string FindPackagePath(
-            NuGetPackageInfo package)
+            string packageName)
         {
             string packagePath = "";
             foreach (string packageSource in PackagesSources)
             {
-                string path = Path.Combine(packageSource, package.PackageFileName);
+                string path = Path.Combine(packageSource, packageName);
                 if (File.Exists(path))
                 {
                     if (packagePath == "")
                         packagePath = packageSource;
                     else
-                        GeneralUtils.ShowMessage($"Package {package.Name} exists in more than one repository. The tool will update only the package in {packagePath}");
+                        GeneralUtils.ShowMessage($"Package {packageName} exists in more than one repository. The tool will update only the package in {packagePath}");
                 }
             }
             return packagePath;

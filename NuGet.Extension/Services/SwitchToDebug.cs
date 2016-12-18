@@ -36,7 +36,7 @@ namespace NuGetTool
         /// <summary>
         /// VS Package that provides this command, not null.
         /// </summary>
-        private readonly Package package;
+        private readonly Package _package;
 
         private OleMenuCommand menuItem;
 
@@ -52,7 +52,7 @@ namespace NuGetTool
                 throw new ArgumentNullException("package");
             }
 
-            this.package = package;
+            this._package = package;
 
             OleMenuCommandService commandService = this.ServiceProvider.GetService(typeof(IMenuCommandService)) as OleMenuCommandService;
             if (commandService != null)
@@ -69,8 +69,7 @@ namespace NuGetTool
             var myCommand = sender as OleMenuCommand;
             if (myCommand != null)
             {
-                OperationContext context = NuGetHelper.LoadNuGetPackages(false);
-                bool? debugMode = context?.Projects?.IsSolutionInDebugMode();
+                bool? debugMode = ProjectUtilities.IsInDebugMode(_package); 
                 if (debugMode == null)
                 {
                     myCommand.Text = "Not accessable";
@@ -99,7 +98,7 @@ namespace NuGetTool
         {
             get
             {
-                return this.package;
+                return this._package;
             }
         }
 
