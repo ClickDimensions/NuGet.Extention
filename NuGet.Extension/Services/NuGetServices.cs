@@ -23,7 +23,7 @@ namespace NuGetTool
 {
     // use Ctrl + m + o in order to collapse all regions
 
-    class NuGetHelper
+    class NuGetServices
     {
         private static IServiceProvider _serviceLocator;
         private static string _utilitiesPath; // the folder which contains the utilities we use in the extension (e.g. NuGet.exe)
@@ -511,7 +511,7 @@ set all of its reference to [copy local = false].";
             packageInfo.NewPackageName = packageName;
             string packageFile = Path.Combine(destination, packageName);
 
-            using (FileStream stream = File.Open(packageFile, FileMode.OpenOrCreate, FileAccess.ReadWrite))
+            using (FileStream stream = File.Open(packageFile, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
             {
                 builder.Save(stream);
             }
@@ -684,17 +684,8 @@ You have to increment the assembly version before this process");
             OperationContext context,
             List<NuGetPackageInfo> dependencies)
         {
-            //XNamespace ns = "http://schemas.microsoft.com/developer/msbuild/2003";
-            //var xml = XDocument.Load(project.ProjectFile);
-            //var xproject = xml.Root;
-            //xproject.Add(new XComment(" NuGetTool Build Events"));
             if (dependencies.Count != 0)
             {
-                //var xpreBuildEvent = new XElement(ns + "PreBuildEvent");
-                //var xpropGroup = new XElement(ns + "PropertyGroup");
-                //xpropGroup.Add(xpreBuildEvent);
-                //xproject.Add(xpropGroup);
-
                 foreach (var package in dependencies)
                 {
                     if (project.NuGetPackageReferences.Contains(package.Id))
@@ -727,18 +718,10 @@ You have to increment the assembly version before this process");
                         }
 
                         #endregion // External Proc
-                        //string updateCommand = $@"call ""{_utilitiesPath}\NuGet.exe"" update $(ProjectDir)packages.config -repositoryPath {context.CacheFolder} -source {package.RepositoryPath} -id {package.Id} -noninteractive";
-                        //if (context.PreRelease)
-                        //    updateCommand += " -prerelease";
-                        //var cmd = new XText(updateCommand);
-                        //xpreBuildEvent.Add(cmd);
                     }
                 }
             }
 
-            //xproject.Save(project.ProjectFile, SaveOptions.OmitDuplicateNamespaces);
-
-            //var result = Disposable.Create(() => RemoveBuildEvents(project));
             var result = Disposable.Empty;
             return result;
         }
@@ -771,8 +754,6 @@ You have to increment the assembly version before this process");
                 if (!context.ShouldArchiveOldNuGet)
                     return;
 
-                //if (!Directory.Exists(context.ArchiveFolder))
-                //    Directory.CreateDirectory(context.ArchiveFolder);
                 if (!Directory.Exists(context.ArchiveSession))
                     Directory.CreateDirectory(context.ArchiveSession);
 

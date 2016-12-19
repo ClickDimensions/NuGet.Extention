@@ -19,108 +19,18 @@ namespace NuGetTool
     /// <summary>
     /// Command handler
     /// </summary>
-    internal sealed class SwitchToDebug
+    internal sealed class SwitchToDebugServices
     {
-        private const string PROJ_REF_MODE_TEXT = "Switch to Debug (Project reference mode)";
-        private const string NUGET_MODE_TEXT = "Switch back to Nuget mode";
-        /// <summary>
-        /// Command ID.
-        /// </summary>;
-        public const int CommandId = 0x0100;
-
-        /// <summary>
-        /// Command menu group (command set GUID).
-        /// </summary>
-        public static readonly Guid CommandSet = new Guid("4e505c7d-de07-43d9-9eb9-db03c16c3f1f");
-
-        /// <summary>
-        /// VS Package that provides this command, not null.
-        /// </summary>
-        private readonly Package _package;
-
-        private OleMenuCommand menuItem;
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="SwitchToDebug"/> class.
-        /// Adds our command handlers for menu (commands must exist in the command table file)
-        /// </summary>
-        /// <param name="package">Owner package, not null.</param>
-        private SwitchToDebug(Package package)
-        {
-            if (package == null)
-            {
-                throw new ArgumentNullException("package");
-            }
-
-            this._package = package;
-
-            OleMenuCommandService commandService = this.ServiceProvider.GetService(typeof(IMenuCommandService)) as OleMenuCommandService;
-            if (commandService != null)
-            {
-                var menuCommandID = new CommandID(CommandSet, CommandId);
-                menuItem = new OleMenuCommand(this.MenuItemCallback, menuCommandID);
-                menuItem.BeforeQueryStatus += MenuItem_BeforeQueryStatus;
-                commandService.AddCommand(menuItem);
-            }
-        }
-
-        private void MenuItem_BeforeQueryStatus(object sender, EventArgs e)
-        {
-            var myCommand = sender as OleMenuCommand;
-            if (myCommand != null)
-            {
-                bool? debugMode = ProjectUtilities.IsInDebugMode(_package); 
-                if (debugMode == null)
-                {
-                    myCommand.Text = "Not accessable";
-                    menuItem.Visible = false;
-                }
-                else if (debugMode.Value)
-                    myCommand.Text = NUGET_MODE_TEXT;
-                else
-                    myCommand.Text = PROJ_REF_MODE_TEXT;
-            }
-        }
-
-        /// <summary>
-        /// Gets the instance of the command.
-        /// </summary>
-        public static SwitchToDebug Instance
-        {
-            get;
-            private set;
-        }
-
-        /// <summary>
-        /// Gets the service provider from the owner package.
-        /// </summary>
-        private IServiceProvider ServiceProvider
-        {
-            get
-            {
-                return this._package;
-            }
-        }
-
-        /// <summary>
-        /// Initializes the singleton instance of the command.
-        /// </summary>
-        /// <param name="package">Owner package, not null.</param>
-        public static void Initialize(Package package)
-        {
-            Instance = new SwitchToDebug(package);
-        }
+        #region Switch
 
         /// <summary>
         /// This function is the callback used to execute the command when the menu item is clicked.
         /// See the constructor to see how the menu item is associated with this function using
         /// OleMenuCommandService service and MenuCommand class.
         /// </summary>
-        /// <param name="sender">Event sender.</param>
-        /// <param name="e">Event args.</param>
-        private void MenuItemCallback(object sender, EventArgs e)
+        public static void Switch()
         {
-            OperationContext context = NuGetHelper.LoadNuGetPackages(false);
+            OperationContext context = NuGetServices.LoadNuGetPackages(false);
             if (context == null)
                 return;
 
@@ -132,9 +42,11 @@ namespace NuGetTool
                 SwitchToNuGetMode(context);
         }
 
+        #endregion // Switch
+
         #region SwitchToDebugMode
 
-        private void SwitchToDebugMode(OperationContext context)
+        private static void SwitchToDebugMode(OperationContext context)
         {
             using (GeneralUtils.StartAnimation())
             using (var progress = GeneralUtils.StartProgressProgress("To Project Reference",
@@ -162,7 +74,7 @@ namespace NuGetTool
 
         #region SwitchToNuGetMode
 
-        private void SwitchToNuGetMode(OperationContext context)
+        private static void SwitchToNuGetMode(OperationContext context)
         {
             using (GeneralUtils.StartAnimation())
             using (var progress = GeneralUtils.StartProgressProgress("Back to NuGet",
@@ -192,7 +104,7 @@ namespace NuGetTool
 
         #region SwitchProjectToDebug
 
-        private void SwitchProjectToDebug(
+        private static void SwitchProjectToDebug(
             ProjectInfo project,
             OperationContext context)
         {
@@ -204,7 +116,7 @@ namespace NuGetTool
 
         #region SwitchProjectToNuGet
 
-        private void SwitchProjectToNuGet(ProjectInfo project)
+        private static void SwitchProjectToNuGet(ProjectInfo project)
         {
             RevertBackPackageConfigToNuGet(project);
             RevertBackProjectFileToNuGet(project);
@@ -220,7 +132,7 @@ namespace NuGetTool
         /// </summary>
         /// <param name="project">The project.</param>
         /// <param name="context">The context.</param>
-        private void UpdatePackageConfig(
+        private static void UpdatePackageConfig(
             ProjectInfo project,
             OperationContext context)
         {
@@ -229,7 +141,6 @@ namespace NuGetTool
 
             if (File.Exists(packagesConfigFile))
             {
-                //string origText = File.ReadAllText(packagesConfigFile);
                 StringBuilder newText = new StringBuilder();
 
                 foreach (var line in File.ReadLines(packagesConfigFile))
@@ -271,7 +182,7 @@ namespace NuGetTool
 
         #region RevertBackPackageConfigToNuGet
 
-        private void RevertBackPackageConfigToNuGet(ProjectInfo project)
+        private static void RevertBackPackageConfigToNuGet(ProjectInfo project)
         {
             string packagesConfigFile = Path.Combine(project.Directory, "packages.config");
 
@@ -311,7 +222,7 @@ namespace NuGetTool
 
         #region UpdateProjectFile
 
-        private void UpdateProjectFile(
+        private static void UpdateProjectFile(
             ProjectInfo project,
             OperationContext context)
         {
@@ -379,7 +290,7 @@ namespace NuGetTool
 
         #region BuildProjectReference
 
-        private string BuildProjectReference(ProjectInfo project)
+        private static string BuildProjectReference(ProjectInfo project)
         {
             string projRef = "";
             projRef += string.Format("\t<ProjectReference Include=\"{0}\">", project.RelativePath) + Environment.NewLine;
@@ -394,7 +305,7 @@ namespace NuGetTool
 
         #region RevertBackProjectFileToNuGet
 
-        private void RevertBackProjectFileToNuGet(ProjectInfo project)
+        private static void RevertBackProjectFileToNuGet(ProjectInfo project)
         {
             string newText = "";
 

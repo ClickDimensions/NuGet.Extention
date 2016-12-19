@@ -11,26 +11,40 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Xml.Linq;
 using TRD = System.Threading;
 
 namespace NuGetTool
 {
     internal class ProjectUtilities
     {
-        private readonly IServiceProvider _serviceProvider;
+        private static IServiceProvider _serviceProvider;
         private readonly ConcurrentDictionary<string, ProjectInfo> _projects = new ConcurrentDictionary<string, ProjectInfo>();
         private readonly OperationContext _context;
+
         #region Ctor
 
         public ProjectUtilities(
             OperationContext context)
         {
-            _serviceProvider = context.ServiceLocator;
             _context = context;
             LoadProjects();
         }
 
         #endregion // Ctor
+
+        #region Initialize
+
+        /// <summary>
+        /// Initializes the specified service provider.
+        /// </summary>
+        /// <param name="serviceProvider">The service provider.</param>
+        public static void Initialize(IServiceProvider serviceProvider)
+        {
+            _serviceProvider = serviceProvider;
+        }
+
+        #endregion // Initialize
 
         #region LoadedProjects
 
@@ -41,9 +55,11 @@ namespace NuGetTool
 
         #endregion // LoadedProjects
 
-        public static bool IsInDebugMode(IServiceProvider serviceProvider)
+        #region IsInDebugMode
+
+        public static bool IsInDebugMode()
         {
-            var solution = serviceProvider.GetService(typeof(SVsSolution)) as IVsSolution;
+            var solution = _serviceProvider.GetService(typeof(SVsSolution)) as IVsSolution;
             if (solution == null)
             {
                 GeneralUtils.ShowMessage("Failed to get Solution service", OLEMSGICON.OLEMSGICON_CRITICAL);
@@ -78,6 +94,7 @@ namespace NuGetTool
             return false;
         }
 
+        #endregion // IsInDebugMode
 
         #region LoadProjects
 
@@ -209,10 +226,11 @@ namespace NuGetTool
         public string GetAssemblyName(IVsProject project)
         {
             string projectFile = GetProjectFilePath(project);
-            string text = File.ReadAllText(projectFile);
-            int assemblyNameStartPos = text.IndexOf("<AssemblyName>") + 14;
-            int assemblyNameEndPos = text.IndexOf("</AssemblyName>");
-            string assemblyName = text.Substring(assemblyNameStartPos, assemblyNameEndPos - assemblyNameStartPos);
+            XElement e = XElement.Load(projectFile);
+
+            string assemblyName = e.Descendants().Where(m => m.Name.LocalName == "AssemblyName")
+                           .Select(m => m.Value)
+                           .FirstOrDefault();
             return assemblyName;
         }
 
