@@ -29,6 +29,7 @@ namespace NuGetTool
             lstSources.Items.AddRange(optionsPage.Setting.PackageSources);
             chkEnableNuGetBackup.Checked = !string.IsNullOrEmpty(optionsPage.Setting.BackupArchiveFolder);
             txtNuGetBackupPath.Text = optionsPage.Setting.BackupArchiveFolder;
+            txtTfsServerUri.Text = optionsPage.Setting.TfsServerUri;
         }
 
         #endregion // Initialize
@@ -163,5 +164,10 @@ namespace NuGetTool
         }
 
         #endregion // OnBackupNugetPathChanged
+
+        private void OnTfsServerUriChanged(object sender, EventArgs e)
+        {
+            optionsPage.Setting.TfsServerUri = txtTfsServerUri.Text;
+        }
     }
 }

@@ -46,6 +46,7 @@ namespace NuGetTool
         public readonly string CacheFolder;
         public string ArchiveFolder => _setting.BackupArchiveFolder;
         public string ArchiveSession => $@"{ArchiveFolder}\{_startAt}";
+        public string TfsServerUri => _setting.TfsServerUri;
         public readonly List<NuGetPackageInfo> PackagesInfo = new List<NuGetPackageInfo>();
         public readonly List<NuGetPackageInfo> PackagesUpdatedSoFar = new List<NuGetPackageInfo>();
         public readonly List<NuGetPackageInfo> RecoveredPackages = new List<NuGetPackageInfo>();

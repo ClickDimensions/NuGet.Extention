@@ -177,7 +177,7 @@ namespace NuGetTool.Services
             string projectFile = GetProjectFilePath(project);
             string text = File.ReadAllText(projectFile);
 
-            if (text.IndexOf("<!--DebugMode-->") == -1)
+            if (text.IndexOf("<!--NuGetTool") == -1)
                 return false;
             return true;
         }
