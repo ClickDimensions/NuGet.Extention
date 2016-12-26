@@ -353,11 +353,6 @@ namespace NuGetTool
 
             using (StreamReader reader = new StreamReader(project.ProjectFile))
             {
-                // Add debug mode comment
-                string xmlDeclarationLine = reader.ReadLine();
-                newText += xmlDeclarationLine + Environment.NewLine;
-                //newText += "<!--DebugMode-->" + Environment.NewLine;
-
                 // Comment out all NuGet references to projects in the solution
                 // and add project references instead of them
                 while (!reader.EndOfStream)

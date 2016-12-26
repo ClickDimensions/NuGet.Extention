@@ -20,15 +20,12 @@ namespace NuGetTool.Services
         private readonly OperationContext _context;
 
         #region Ctor
-
-        public ProjectUtilities(
-            OperationContext context)
+        public ProjectUtilities(OperationContext context)
         {
             _serviceProvider = context.ServiceLocator;
             _context = context;
             LoadProjects();
         }
-
         #endregion // Ctor
 
         #region LoadedProjects
@@ -120,11 +117,9 @@ namespace NuGetTool.Services
             }
             return false;
         }
-
         #endregion // IsSolutionInDebugMode
 
         #region GetProjectGuid
-
         public string GetProjectGuid(IVsProject project)
         {
             var solution = _serviceProvider.GetService(typeof(SVsSolution)) as IVsSolution;
@@ -146,18 +141,15 @@ namespace NuGetTool.Services
         #endregion // GetProjectName
 
         #region GetProjectFilePath
-
         public string GetProjectFilePath(IVsProject project)
         {
             string path;
             project.GetMkDocument((uint)VSConstants.VSITEMID.Root, out path);
             return path;
         }
-
         #endregion // GetProjectFilePath
 
         #region GetAssemblyName
-
         public string GetAssemblyName(IVsProject project)
         {
             string projectFile = GetProjectFilePath(project);
@@ -167,25 +159,21 @@ namespace NuGetTool.Services
             string assemblyName = text.Substring(assemblyNameStartPos, assemblyNameEndPos - assemblyNameStartPos);
             return assemblyName;
         }
-
         #endregion // GetAssemblyName
 
         #region IsInDebugMode
-
         public bool IsInDebugMode(IVsProject project)
         {
             string projectFile = GetProjectFilePath(project);
             string text = File.ReadAllText(projectFile);
 
-            if (text.IndexOf("<!--NuGetTool") == -1)
+            if (text.IndexOf("<!--DebugMode") == -1)
                 return false;
             return true;
         }
-
         #endregion // IsInDebugMode
 
         #region GetProjectUniqueName
-
         public string GetProjectUniqueName(IVsProject project)
         {
             var solution = _serviceProvider.GetService(typeof(SVsSolution)) as IVsSolution;
@@ -194,7 +182,6 @@ namespace NuGetTool.Services
             solution.GetUniqueNameOfProject((IVsHierarchy)project, out name);
             return name;
         }
-
         #endregion // GetProjectUniqueName
 
         #region GetPackageReferences
@@ -237,7 +224,6 @@ namespace NuGetTool.Services
         #endregion // FindProjectByName
 
         #region FindProjectInProject
-
         public Project FindProjectInProject(Project project, string name)
         {
             // if solution folder, one of its ProjectItems might be a real project
@@ -259,11 +245,9 @@ namespace NuGetTool.Services
             }
             return null;
         }
-
         #endregion // FindProjectInProject
 
         #region GetProjectOutputPath
-
         public string GetProjectOutputPath(string name)
         {
             DTE dte = (DTE)_serviceProvider.GetService(typeof(DTE));
@@ -282,22 +266,18 @@ namespace NuGetTool.Services
                 return null;
             }
         }
-
         #endregion // GetProjectOutputPath
 
         #region CleanSolution
-
         public void CleanSolution()
         {
             DTE dte = (DTE)_serviceProvider.GetService(typeof(DTE));
             SolutionBuild solutionBuild = dte.Solution.SolutionBuild;
             solutionBuild.Clean(true);
         }
-
         #endregion // CleanSolution
 
         #region ReOpenSolution
-
         public void ReOpenSolution()
         {
             DTE dte = (DTE)_serviceProvider.GetService(typeof(DTE));
@@ -305,11 +285,9 @@ namespace NuGetTool.Services
             dte.Solution.Close();
             dte.Solution.Open(solutionFileName);
         }
-
         #endregion // ReOpenSolution
 
         #region BuildProject
-
         public bool BuildProject(ProjectInfo project)
         {
             DTE dte = (DTE)_serviceProvider.GetService(typeof(DTE));
@@ -325,11 +303,9 @@ namespace NuGetTool.Services
                 System.Diagnostics.Debugger.Break();
             return compiledOK;
         }
-
         #endregion // BuildProject
 
         #region BuildSolution
-
         public bool BuildSolution()
         {
             DTE dte = (DTE)_serviceProvider.GetService(typeof(DTE));
@@ -343,11 +319,9 @@ namespace NuGetTool.Services
                 System.Diagnostics.Debugger.Break();
             return compiledOK;
         }
-
         #endregion // BuildSolution
 
         #region FindPackageByAssemblyName
-
         private NuGetPackageInfo FindPackageByAssemblyName(
             string assemblyName)
         {
@@ -356,7 +330,6 @@ namespace NuGetTool.Services
                                         select p).FirstOrDefault();
             return package;
         }
-
         #endregion // FindPackageByAssemblyName
     }
 }
