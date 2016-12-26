@@ -43,6 +43,18 @@ namespace NuGetTool.Services
             }
         }
 
+        public static bool HasFilePendingChanges(string path, string tfsServerUri)
+        {
+            // Load the TFS workspace only once
+            if (workspace == null)
+            {
+                FindWorkspace(path, tfsServerUri);
+                if (workspace == null)
+                    return false;
+            }
+            return workspace.GetPendingChanges(path).Any();
+        }
+
         public static bool UndoCheckOut(string path, string tfsServerUri)
         {
             // Load the TFS workspace only once

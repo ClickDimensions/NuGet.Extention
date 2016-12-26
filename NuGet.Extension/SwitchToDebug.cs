@@ -235,6 +235,8 @@ namespace NuGetTool
 
             if (File.Exists(packagesConfigFile))
             {
+                bool hasFilePendingChanges = TFSUtilities.HasFilePendingChanges(packagesConfigFile, context.TfsServerUri);
+
                 //string origText = File.ReadAllText(packagesConfigFile);
                 StringBuilder newText = new StringBuilder();
 
@@ -266,8 +268,12 @@ namespace NuGetTool
                 File.WriteAllText(packagesConfigFile, newText.ToString());
 
                 // Compute hash for the file (so we can check if it has changed when switching back to NuGet)
-                string hash64 = GeneralUtils.ComputeHash(packagesConfigFile);
-                newText.AppendLine($"<!--DebugMode {hash64}-->");
+                string hash64 = null;
+                if (!hasFilePendingChanges)
+                {
+                    hash64 = GeneralUtils.ComputeHash(packagesConfigFile);
+                }
+                newText.AppendLine($"<!--DebugMode {hash64}-->");                                
                 File.WriteAllText(packagesConfigFile, newText.ToString());
             }
             else
@@ -328,14 +334,23 @@ namespace NuGetTool
                     }
                 }
 
-                File.WriteAllText(packagesConfigFile, textWithoutHashKey);
-                string newHash = GeneralUtils.ComputeHash(packagesConfigFile);
-                File.WriteAllText(packagesConfigFile, newText);
-
-                // If the files are identical, then undo the checkout
-                if (origHash == newHash)
+                // If the file was checked out first time by the tool, and has not changed
+                // outside the tool, then undo the check out when switching back to NuGet mode     
+                if (!String.IsNullOrEmpty(origHash))
                 {
-                    TFSUtilities.UndoCheckOut(packagesConfigFile, context.TfsServerUri);
+                    File.WriteAllText(packagesConfigFile, textWithoutHashKey);
+                    string newHash = GeneralUtils.ComputeHash(packagesConfigFile);
+                    File.WriteAllText(packagesConfigFile, newText);
+
+                    // If the files are identical, then undo the checkout
+                    if (origHash == newHash)
+                    {
+                        TFSUtilities.UndoCheckOut(packagesConfigFile, context.TfsServerUri);
+                    }
+                }
+                else
+                {
+                    File.WriteAllText(packagesConfigFile, newText);
                 }
             }
             else
@@ -350,6 +365,7 @@ namespace NuGetTool
         private void UpdateProjectFile(ProjectInfo project, OperationContext context)
         {
             string newText = "";
+            bool hasFilePendingChanges = TFSUtilities.HasFilePendingChanges(project.ProjectFile, context.TfsServerUri);
 
             using (StreamReader reader = new StreamReader(project.ProjectFile))
             {
@@ -403,7 +419,11 @@ namespace NuGetTool
             File.WriteAllText(project.ProjectFile, newText);
 
             // Compute hash for the file (so we can check if it has changed when switching back to NuGet)
-            string hash64 = GeneralUtils.ComputeHash(project.ProjectFile);
+            string hash64 = null;
+            if (!hasFilePendingChanges)
+            {
+                hash64 = GeneralUtils.ComputeHash(project.ProjectFile);                
+            }
             newText += $"<!--DebugMode {hash64}-->";
             File.WriteAllText(project.ProjectFile, newText.ToString());
         }
@@ -496,16 +516,23 @@ namespace NuGetTool
                     }
                 }
             }
-
-            File.WriteAllText(project.ProjectFile, textWithoutHashKey);            
-            string newHash = GeneralUtils.ComputeHash(project.ProjectFile);
-            File.WriteAllText(project.ProjectFile, newText);
-
-            // If the files are identical, then undo the checkout
-            if (origHash == newHash)
+                   
+            // If the file was checked out first time by the tool, and has not changed
+            // outside the tool, then undo the check out when switching back to NuGet mode     
+            if (!String.IsNullOrEmpty(origHash))
             {
-                TFSUtilities.UndoCheckOut(project.ProjectFile, context.TfsServerUri);
+                File.WriteAllText(project.ProjectFile, textWithoutHashKey);
+                string newHash = GeneralUtils.ComputeHash(project.ProjectFile);
+                File.WriteAllText(project.ProjectFile, newText);
+                if (origHash == newHash)
+                {
+                    TFSUtilities.UndoCheckOut(project.ProjectFile, context.TfsServerUri);
+                }
             }
+            else
+            {
+                File.WriteAllText(project.ProjectFile, newText);
+            }      
         }
 
         #endregion // RevertBackProjectFileToNuGet
