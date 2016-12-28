@@ -158,7 +158,7 @@ namespace NuGetTool
             bool inDebugMode = IsInDebugMode(proj);
 
             ProjectInfo project = new ProjectInfo(
-                guid, name, projectFile, assemblyName, fullName, 
+                guid, name, projectFile, assemblyName, fullName,
                 outputPath, inDebugMode);
 
             // Find the matching NuGet package to this project
@@ -253,7 +253,7 @@ namespace NuGetTool
         {
             string projectFile = GetProjectFilePath(project);
             bool isDebugMode = File.ReadLines(projectFile)
-                                    .Any(line => line.IndexOf("<!--DebugMode-->") != -1);
+                                    .Any(line => line.IndexOf("<!--DebugMode") != -1);
 
             return isDebugMode;
         }
@@ -433,7 +433,7 @@ namespace NuGetTool
             SolutionBuild solutionBuild = dte.Solution.SolutionBuild;
 
             string solutionConfiguration = solutionBuild.ActiveConfiguration.Name;
-            
+
             await TRD.Tasks.Task.Factory.StartNew(() =>
                             solutionBuild.Build(true),
                             TaskCreationOptions.LongRunning);
