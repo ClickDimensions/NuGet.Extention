@@ -52,7 +52,7 @@ namespace NuGetTool
         public const string PackageGuidString = "7754852e-b5f6-414c-b167-3df0e70fc81f";
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="SwitchToDebug"/> class.
+        /// Initializes a new instance of the <see cref="SwitchToDebugServices"/> class.
         /// </summary>
         public NuGetToolPackage()
         {
@@ -71,11 +71,11 @@ namespace NuGetTool
         protected override void Initialize()
         {
             GeneralUtils.Initialize(this);
-            NuGetHelper.Initialize(this);
-            //ProjectUtilities.Initialize(this);
-            SwitchToDebug.Initialize(this);
-            UpgradeNuGet.Initialize(this);
-            UpgradeNuGetBeta.Initialize(this);
+            ProjectUtilities.Initialize(this);
+            NuGetServices.Initialize(this);
+            SwitchToDebugCommand.Initialize(this);
+            UpgradeNuGetCommand.Initialize(this);
+            UpgradeNuGetBetaCommand.Initialize(this);
             base.Initialize();
         }
 

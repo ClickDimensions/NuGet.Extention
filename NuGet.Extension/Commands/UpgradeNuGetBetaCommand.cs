@@ -1,5 +1,5 @@
 ﻿//------------------------------------------------------------------------------
-// <copyright file="UpgradeNuGet.cs" company="Company">
+// <copyright file="UpgradeNuGetBeta.cs" company="Company">
 //     Copyright (c) Company.  All rights reserved.
 // </copyright>
 //------------------------------------------------------------------------------
@@ -9,72 +9,74 @@ using System.ComponentModel.Design;
 using System.Globalization;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
-using NuGetTool.Services;
+using NS_TRD = System.Threading;
 
 namespace NuGetTool
 {
     /// <summary>
     /// Command handler
     /// </summary>
-    internal sealed class UpgradeNuGet
+    internal sealed class UpgradeNuGetBetaCommand
     {
+        #region CommandId
+
         /// <summary>
-        /// Command ID.
+        /// Command ID: related to the UI menu 
+        /// see cmdidUpgradeNuGetBeta at NuGetToolPackage.vsct
         /// </summary>
-        public const int CommandId = 0x0200;
+        public const int CommandId = 0x0300;
+
+        #endregion // CommandId
+
+        #region CommandSet
 
         /// <summary>
         /// Command menu group (command set GUID).
         /// </summary>
         public static readonly Guid CommandSet = new Guid("4e505c7d-de07-43d9-9eb9-db03c16c3f1f");
 
-        /// <summary>
-        /// VS Package that provides this command, not null.
-        /// </summary>
-        private readonly Package package;
+        #endregion // CommandSet
+
+        #region Ctor
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="UpgradeNuGet"/> class.
+        /// Initializes a new instance of the <see cref="UpgradeNuGetBetaCommand"/> class.
         /// Adds our command handlers for menu (commands must exist in the command table file)
         /// </summary>
         /// <param name="package">Owner package, not null.</param>
-        private UpgradeNuGet(Package package)
+        private UpgradeNuGetBetaCommand(Package package)
         {
             if (package == null)
             {
                 throw new ArgumentNullException("package");
             }
 
-            this.package = package;
-
-            OleMenuCommandService commandService = this.ServiceProvider.GetService(typeof(IMenuCommandService)) as OleMenuCommandService;
+            IServiceProvider serviceProvider = package;
+            OleMenuCommandService commandService = serviceProvider.GetService(typeof(IMenuCommandService)) as OleMenuCommandService;
             if (commandService != null)
             {
                 var menuCommandID = new CommandID(CommandSet, CommandId);
-                var menuItem = new MenuCommand(this.MenuItemCallback, menuCommandID);
+                var menuItem = new MenuCommand(this.OnUpdateNuGetPackages, menuCommandID);
                 commandService.AddCommand(menuItem);
             }
         }
 
+        #endregion // Ctor
+
+        #region Instance
+
         /// <summary>
         /// Gets the instance of the command.
         /// </summary>
-        public static UpgradeNuGet Instance
+        public static UpgradeNuGetBetaCommand Instance
         {
             get;
             private set;
         }
 
-        /// <summary>
-        /// Gets the service provider from the owner package.
-        /// </summary>
-        private IServiceProvider ServiceProvider
-        {
-            get
-            {
-                return this.package;
-            }
-        }
+        #endregion // Instance
+
+        #region Initialize
 
         /// <summary>
         /// Initializes the singleton instance of the command.
@@ -82,8 +84,12 @@ namespace NuGetTool
         /// <param name="package">Owner package, not null.</param>
         public static void Initialize(Package package)
         {
-            Instance = new UpgradeNuGet(package);
+            Instance = new UpgradeNuGetBetaCommand(package);
         }
+
+        #endregion // Initialize
+
+        #region OnUpdateNuGetPackages
 
         /// <summary>
         /// This function is the callback used to execute the command when the menu item is clicked.
@@ -92,9 +98,14 @@ namespace NuGetTool
         /// </summary>
         /// <param name="sender">Event sender.</param>
         /// <param name="e">Event args.</param>
-        private void MenuItemCallback(object sender, EventArgs e)
+        private void OnUpdateNuGetPackages(object sender, EventArgs e)
         {
-            NuGetHelper.UpdateNuGetPackages(false);
+            NuGetServices.UpdateNuGetPackages(true);
+            //NS_TRD.Tasks.Task.Factory.StartNew(() =>
+            //    NuGetHelper.UpdateNuGetPackages(true),
+            //    NS_TRD.Tasks.TaskCreationOptions.LongRunning);
         }
+
+        #endregion // OnUpdateNuGetPackages
     }
 }

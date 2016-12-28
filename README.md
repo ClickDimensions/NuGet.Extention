@@ -17,4 +17,8 @@ NuGet Extension is having the following features
 - [ ] Unchackout project that has not changed after moving back to NuGet (calculate the file hash)
 - [ ] Disable NuGet Operations when some of the project not loaded
 - [ ] Consider the flow when NuGet is having more than single dll 
-- [ ] 
+
+
+### ISSUES
+- [ ] Fix failure when having multiple csproj in same folder
+

@@ -16,27 +16,32 @@ using System.Runtime.Versioning;
 using System.Text;
 using System.Windows.Forms;
 using System.Xml.Linq;
+using TRD = System.Threading;
+using TPL = System.Threading.Tasks;
 
-namespace NuGetTool.Services
+namespace NuGetTool
 {
     // use Ctrl + m + o in order to collapse all regions
 
-    class NuGetHelper
+    class NuGetServices
     {
         private static IServiceProvider _serviceLocator;
         private static string _utilitiesPath; // the folder which contains the utilities we use in the extension (e.g. NuGet.exe)
         private const int UPDATE_NUGET_COUNT = 8;
 
         #region Initialize
+
         public static void Initialize(IServiceProvider package)
         {
             _serviceLocator = package;
             var root = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
             _utilitiesPath = Path.Combine(root, "utilities");
         }
+
         #endregion // Initialize
 
         #region LoadNuGetPackages
+
         public static OperationContext LoadNuGetPackages(bool preRelease)
         {
             DTE dte = (DTE)_serviceLocator.GetService(typeof(DTE));
@@ -53,12 +58,14 @@ namespace NuGetTool.Services
                 }
             }
             #region Exception Handling
+
             catch (Exception ex)
             {
                 System.Diagnostics.Trace.WriteLine($"Setting not found {ex}");
                 GeneralUtils.ShowMessage("Packages sources are not defined. Use Tools->Options->NuGet.Extension to define the sources", OLEMSGICON.OLEMSGICON_WARNING);
                 return null;
             }
+
             #endregion // Exception Handling
 
             try
@@ -77,10 +84,16 @@ namespace NuGetTool.Services
                 return null;
             }
         }
+
         #endregion // LoadNuGetPackages
 
         #region UpdateNuGetPackages
-        public static void UpdateNuGetPackages(bool preRelease)
+
+        /// <summary>
+        /// Handle the process of Updating the NuGet packages.
+        /// </summary>
+        /// <param name="preRelease">if set to <c>true</c> [pre release].</param>
+        public static async void UpdateNuGetPackages(bool preRelease)
         {
             using (GeneralUtils.StartAnimation())
             using (var progress = GeneralUtils.StartProgressProgress("NuGet Upgrade", UPDATE_NUGET_COUNT))
@@ -91,6 +104,7 @@ namespace NuGetTool.Services
                     OperationContext context = LoadNuGetPackages(preRelease);
 
                     #region Validation
+
                     if (context == null)
                         return;
 
@@ -103,12 +117,18 @@ namespace NuGetTool.Services
                         return;
                     }
 
-                    if (!context.Projects.BuildSolution())
+                    if (! await context.Projects.BuildSolution())
                     {
-                        GeneralUtils.ShowMessage(@"Make sure that the solution is built
-with no errors, before NuGet upgrade!");
-                        return;
+                        if (MessageBox.Show(@"Make sure that the solution is build 
+with no errors, before NuGet upgrade!
+Do you want to continue", "Pre build solution",
+MessageBoxButtons.YesNo,
+MessageBoxIcon.Question) == DialogResult.No)
+                        {
+                            return;
+                        }
                     }
+
                     #endregion // Validation
 
                     // Build only packages with corresponding projects 
@@ -117,17 +137,16 @@ with no errors, before NuGet upgrade!");
                                            where p.ProjectInfo != null
                                            select p).ToList();
 
-                    // Add NuGet packages that have no corrseponding projects in current solution,
-                    // but depend on other NuGet packages that need to upgrade
-                    var dependentPackagesWithoutProjects = GetDependentPackagesWithoutProjects(context);
-                    packagesToBuild.AddRange(dependentPackagesWithoutProjects);                                     
-
                     #region Validation
+
                     if (packagesToBuild.Count == 0)
                     {
-                        GeneralUtils.ShowMessage("No NuGet package needs to be updated");
+                        GeneralUtils.ShowMessage(@"No NuGet package needs to be updated.
+Goto: Tools -> Options -> NuGet Tool
+and add path for local NuGet repositories.");
                         return;
                     }
+
                     #endregion // Validation
 
                     //RemoveCachedNuGetFiles();
@@ -136,58 +155,48 @@ with no errors, before NuGet upgrade!");
 
                     using (var currentProgress = GeneralUtils.StartProgressProgress("NuGet: Current", packagesToBuild.Count))
                     {
-                        for (int i = 0; i < packagesToBuild.Count; i++)
+                        DialogResult result =
+                            await BuildAndUpdate(context, packagesToBuild, currentProgress);
+                        switch (result)
                         {
-                            currentProgress.Report(i);
-                            NuGetPackageInfo p = packagesToBuild[i];
-                            GeneralUtils.ReportStatus($"CurrentPackage = {p.Name}");
-                                                       
-                            string errorMsg = UpdatePackage(p, context);
-
-                            #region Exception Handling (Abort, Retry, Ignore)
-                            if (errorMsg != null)
-                            {
-                                string msg = $"Failed to update package {p.Id}. Error: {errorMsg}.\n{context.PackagesUpdatedSoFar.Count} NuGet packages have been updated so far.\nChoose Abort to stop the process and rollback, Ignore to continue updating the other packages, and Retry to try again from current stage.";
-                                int option = GeneralUtils.ChooseRecoveryOption(msg);
-                                switch (option)
-                                {
-                                    case 3: // Abort
-                                        Rollback(context);
-                                        return;
-                                    case 4: // Retry
-                                        i--;
-                                        continue;
-                                    case 5: // Ignore
-                                        continue;
-                                }
-                            }
-                            #endregion // Exception Handling (Abort, Retry, Ignore)
+                            case DialogResult.Cancel:
+                                GeneralUtils.ReportStatus("Operation Canceled");
+                                return;
+                            case DialogResult.Abort:
+                                GeneralUtils.ReportStatus("Operation aborted");
+                                return;
                         }
                         currentProgress.Report(packagesToBuild.Count);
                     }
 
                     progress.Report(5);
-                    GeneralUtils.ReportStatus($"NuGet: Archive");
-                    CreateArchiveZipFile(context.ArchiveSession);
+                    if (context.ShouldArchiveOldNuGet)
+                    {
+                        GeneralUtils.ReportStatus($"NuGet: Archive");
+                        await CreateArchiveZipFile(context.ArchiveSession);
+                    }
 
                     GeneralUtils.ReportStatus($"NuGet: Build");
                     progress.Report(6);
                     // Build all the other projects that don't have corresponding NuGet packages
-                    BuildProjectsWithNoPackages(context);
+                    await BuildProjectsWithNoPackages(context);
 
                     progress.Report(7);
 
                     GeneralUtils.ReportStatus($"NuGet: Re-open projects");
-                    context.Projects.ReOpenSolution();
+                    await TPL.Task.Factory.StartNew(() =>
+                                       context.Projects.ReOpenSolution(),
+                                       TPL.TaskCreationOptions.LongRunning);
 
                     progress.Report(8);
-
                     #region Clipboard.SetText(context.ArchiveFolder)
+
                     try
                     {
                         Clipboard.SetText(context.ArchiveFolder);
                     }
                     catch { }
+
                     #endregion // Clipboard.SetText(context.ArchiveFolder)
 
                     GeneralUtils.ShowMessage($@"{context.PackagesUpdatedSoFar.Count} NuGet packages have been updated
@@ -195,7 +204,9 @@ Old packages moved to [{context.ArchiveFolder}] + copied to the clipboard");
                 }
                 catch (FileNotFoundException ex)
                 {
-                    MessageBox.Show($@"Make sure to build the solution before running the tool{ex}", "ERROR", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    MessageBox.Show($@"Make sure to build the solution before running the tool
+
+{ex}", "ERROR", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
                 catch (Exception ex)
                 {
@@ -203,10 +214,67 @@ Old packages moved to [{context.ArchiveFolder}] + copied to the clipboard");
                 }
             }
         }
+
         #endregion // UpdateNuGetPackages
 
+        #region BuildAndUpdate
+
+        /// <summary>
+        /// Builds (projects) the and update (NuGets).
+        /// </summary>
+        /// <param name="context">The context.</param>
+        /// <param name="packagesToBuild">The packages to build.</param>
+        /// <param name="currentProgress">The current progress.</param>
+        private static async TPL.Task<DialogResult> BuildAndUpdate(OperationContext context, List<NuGetPackageInfo> packagesToBuild, GeneralUtils.StatusReporter currentProgress)
+        {
+            for (int i = 0; i < packagesToBuild.Count; i++)
+            {
+                currentProgress.Report(i);
+                NuGetPackageInfo p = packagesToBuild[i];
+                GeneralUtils.ReportStatus($"CurrentPackage = {p.Name}");
+
+                string errorMsg = await UpdateSinglePackage(p, context);
+                #region Exception Handling (Abort, Retry, Ignore)
+
+                if (errorMsg != null)
+                {
+                    string msg = $@"Failed to update package {p.Id}. 
+Error: {errorMsg}.
+
+{context.RecoveredPackages.Count} NuGet packages have been recovered so far.
+{context.PackagesUpdatedSoFar.Count} NuGet packages have been updated so far.
+
+Do you want to rollback the state?
+OK:     will try to reset the state to the previous state.
+Cancel: will stop the processing and let you fix the problem manually.
+        you can retry to update after fixing the problem.";
+                    DialogResult option = MessageBox.Show(msg, "Execution Problem", MessageBoxButtons.OKCancel, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
+                    switch (option)
+                    {
+                        case DialogResult.OK:
+                            Rollback(context);
+                            return DialogResult.Abort;
+                        //return;
+                        //case 4: // Retry
+                        //    i--;
+                        //    continue;
+                        case DialogResult.Cancel:
+                            return DialogResult.Cancel;
+                    }
+                }
+
+                #endregion // Exception Handling (Abort, Retry, Ignore)
+            }
+
+            return DialogResult.OK;
+        }
+
+        #endregion // BuildAndUpdate
+
         #region Rollback
-        private static void Rollback(OperationContext context)
+
+        private static async void Rollback(
+            OperationContext context)
         {
             // Recover the old packages 
             for (int i = 0; i < context.PackagesUpdatedSoFar.Count; i++)
@@ -214,20 +282,29 @@ Old packages moved to [{context.ArchiveFolder}] + copied to the clipboard");
                 NuGetPackageInfo p = context.PackagesUpdatedSoFar[i];
                 GeneralUtils.ReportStatus($"Rollback: {p.Name}");
 
-                string errorMsg = RollbackPackage(p, context);
+                string errorMsg = await RollbackPackage(p, context);
 
                 if (errorMsg != null)
                 {
-                    string msg = $"Failed to recover package {p.Id}. Error: {errorMsg}.\n{context.RecoveredPackages.Count} NuGet packages have been recovered so far.\nChoose Abort to stop the process, Ignore to continue recovering the other packages, and Retry to try again from current stage.";
-                    int option = GeneralUtils.ChooseRecoveryOption(msg);
+                    string msg = $@"Failed to recover package {p.Id}. Error: {errorMsg}.
+{context.RecoveredPackages.Count} NuGet packages have been recovered so far.
+Choose one of the following actions: 
+    Abort:  to stop the process
+            (you can repeat the process after fixing the problem).
+    Ignore: to continue recovering the other packages
+    Retry:  to try again (from current stage).";
+                    DialogResult option = MessageBox.Show(msg, "Rollback",
+                                                MessageBoxButtons.AbortRetryIgnore,
+                                                MessageBoxIcon.Question,
+                                                MessageBoxDefaultButton.Button1);
                     switch (option)
                     {
-                        case 3: // Abort                            
+                        case DialogResult.Abort:
                             return;
-                        case 4: // Retry
+                        case DialogResult.Retry:
                             i--;
                             continue;
-                        case 5: // Ignore
+                        case DialogResult.Ignore:
                             continue;
                     }
                 }
@@ -235,29 +312,28 @@ Old packages moved to [{context.ArchiveFolder}] + copied to the clipboard");
             Directory.Delete(context.ArchiveSession);
             GeneralUtils.ShowMessage($"{context.RecoveredPackages.Count} NuGet packages have been restored");
         }
+
         #endregion // Rollback
 
         #region RollbackPackage
-        private static string RollbackPackage(
+
+        private static async TPL.Task<string> RollbackPackage(
             NuGetPackageInfo packageInfo,
             OperationContext context)
         {
             try
             {
-                RecoverOldVersionFromArchive(packageInfo, context);
-
                 ProjectInfo project = packageInfo.ProjectInfo;
-                if (project != null)
+                await RecoverOldVersionFromArchive(packageInfo, context);
+
+                using (await AddBuildEvents(project, context, context.RecoveredPackages))
                 {
-                    using (AddBuildEvents(project, context, context.RecoveredPackages))
+                    if (! await context.Projects.BuildProject(project))
                     {
-                        if (!context.Projects.BuildProject(project))
-                        {
-                            //RemoveBuildEvents(project);
-                            return $"Failed to build project {project.Name}";
-                        }
-                    } // RemoveBuildEvents(project);
-                }
+                        //RemoveBuildEvents(project);
+                        return $"Failed to build project {project.Name}";
+                    }
+                } // RemoveBuildEvents(project);
                 context.RecoveredPackages.Add(packageInfo);
                 return null;
             }
@@ -266,27 +342,37 @@ Old packages moved to [{context.ArchiveFolder}] + copied to the clipboard");
                 return ex.Message;
             }
         }
+
         #endregion // RollbackPackage
 
         #region RecoverOldVersionFromArchive
-        private static void RecoverOldVersionFromArchive(
+
+        private static TPL.Task RecoverOldVersionFromArchive(
             NuGetPackageInfo packageInfo,
             OperationContext context)
         {
             GeneralUtils.ReportStatus($"Recover old version from archive");
 
-            string sourcePackagePath = Path.Combine(context.ArchiveSession, packageInfo.PackageFileName);
-            string targetPackagePath = Path.Combine(packageInfo.RepositoryPath, packageInfo.PackageFileName);
-            File.Move(sourcePackagePath, targetPackagePath);
+            return TPL.Task.Factory.StartNew(() =>
+            {
+                string sourcePackagePath = Path.Combine(context.ArchiveSession, packageInfo.PackageFileName);
+                string targetPackagePath = Path.Combine(packageInfo.RepositoryPath, packageInfo.PackageFileName);
 
-            // Delete the new version from the repository
-            string newPackagePath = Path.Combine(packageInfo.RepositoryPath, packageInfo.NewPackageName);
-            File.Delete(newPackagePath);
+                if (File.Exists(sourcePackagePath))
+                    File.Move(sourcePackagePath, targetPackagePath);
+
+                // Delete the new version from the repository
+                string newPackagePath = Path.Combine(packageInfo.RepositoryPath, packageInfo.NewPackageName);
+                if (File.Exists(newPackagePath))
+                    File.Delete(newPackagePath);
+            }, TPL.TaskCreationOptions.LongRunning);
         }
+
         #endregion // RecoverOldVersionFromArchive
 
         #region BuildProjectsWithNoPackages
-        private static void BuildProjectsWithNoPackages(
+
+        private static async TPL.Task BuildProjectsWithNoPackages(
             OperationContext context)
         {
             using (var progress = GeneralUtils.StartProgressProgress("Build", context.Projects.LoadedProjects.Length))
@@ -298,9 +384,9 @@ Old packages moved to [{context.ArchiveFolder}] + copied to the clipboard");
                     progress.Report(i);
                     if (!project.ProjectBuilt)
                     {
-                        using (AddBuildEvents(project, context, context.PackagesUpdatedSoFar))
+                        using (await AddBuildEvents(project, context, context.PackagesUpdatedSoFar))
                         {
-                            if (context.Projects.BuildProject(project))
+                            if (await context.Projects.BuildProject(project))
                                 project.ProjectBuilt = true;
                             else
                                 GeneralUtils.ShowMessage($"Failed to build project {project.Name}", OLEMSGICON.OLEMSGICON_CRITICAL);
@@ -309,46 +395,64 @@ Old packages moved to [{context.ArchiveFolder}] + copied to the clipboard");
                 }
             }
         }
+
         #endregion // BuildProjectsWithNoPackages
 
-        #region UpdatePackage
-        private static string UpdatePackage(
+        #region UpdateSinglePackage
+
+        /// <summary>
+        /// Updates the Single package.
+        /// </summary>
+        /// <param name="packageInfo">The package information.</param>
+        /// <param name="context">The context.</param>
+        /// <returns></returns>
+        private static async TPL.Task<string> UpdateSinglePackage(
             NuGetPackageInfo packageInfo,
             OperationContext context)
         {
             try
             {
+                #region Build Project
+
                 ProjectInfo project = packageInfo.ProjectInfo;
-                if (project != null)
+                using (await AddBuildEvents(project, context, context.PackagesUpdatedSoFar))
                 {
-                    string errorMsg = VerifyProjectReadyForUpgrade(project);
-                    if (errorMsg != null)
+                    if (!await context.Projects.BuildProject(project))
                     {
-                        return errorMsg;
+                        //RemoveBuildEvents(project);
+                        return $@"Failed to build project {project.Name}
+
+if this project is not a Hosting
+set all of its reference to [copy local = false].";
                     }
 
-                    using (AddBuildEvents(project, context, context.PackagesUpdatedSoFar))
-                    {
-                        if (!context.Projects.BuildProject(project))
-                        {
-                            //RemoveBuildEvents(project);
-                            return $"Failed to build project {project.Name}";
-                        }
+                    project.ProjectBuilt = true;
+                } // RemoveBuildEvents(project);
 
-                        project.ProjectBuilt = true;
-                    } // RemoveBuildEvents(project);
-                }
+                #endregion // Build Project
 
                 // source is for the project build files
-                string source = project?.OutputPath;
+                string source = project.OutputPath;
+
+                string asmPath = Path.Combine(source, project.AssemblyName + ".dll");
+                if (File.Exists(asmPath))
+                {
+                    var asm = Assembly.ReflectionOnlyLoadFrom(asmPath);
+                    if (asm.GetName().Version.ToString() == packageInfo.NuGetPackage.Version.Version.ToString())
+                    {
+                        context.PackagesUpdatedSoFar.Add(packageInfo);
+                        return null;
+                    }
+                }
 
                 // destination is for the NuGet packages repository
                 string destination = packageInfo.RepositoryPath;
 
                 // create a new NuGet package (we need to keep the old version to allow the update
                 // of the NuGet version in the project references)
-                if (!CreateNuGet(context, packageInfo, project, source, destination, context.PreRelease))
+                if (!CreateNuGet(packageInfo, project, source, destination, context.PreRelease))
                     return "Assembly version must increase before the process";
+
                 MoveOldVersionToArchive(packageInfo, context);
 
                 context.PackagesUpdatedSoFar.Add(packageInfo);
@@ -362,21 +466,21 @@ Old packages moved to [{context.ArchiveFolder}] + copied to the clipboard");
                 return ex.ToString();
             }
         }
-        #endregion // UpdatePackage
 
-        private static string VerifyProjectReadyForUpgrade(ProjectInfo project)
-        {
-            // Check that there is no more than one csproj file
-            if (Directory.GetFiles(project.Directory, "*.csproj").Count() > 1)
-            {
-                return $"The folder {project.Directory} contains more than one csproj file";
-            }
-            return null;
-        }
+        #endregion // UpdateSinglePackage
 
         #region CreateNuGet
+
+        /// <summary>
+        /// Create and save new NuGet package.
+        /// </summary>
+        /// <param name="packageInfo">The package information.</param>
+        /// <param name="project">The project.</param>
+        /// <param name="source">The source.</param>
+        /// <param name="destination">The destination.</param>
+        /// <param name="preRelease">if set to <c>true</c> [pre release].</param>
+        /// <returns></returns>
         private static bool CreateNuGet(
-            OperationContext context,
             NuGetPackageInfo packageInfo,
             ProjectInfo project,
             string source,
@@ -386,21 +490,18 @@ Old packages moved to [{context.ArchiveFolder}] + copied to the clipboard");
             IPackage package = packageInfo.NuGetPackage;
             PackageBuilder builder = new PackageBuilder();
 
-            if (source != null)
-            {
-                var manifestFiles = CreateManifestFiles(source, package.GetLibFiles());
-                builder.PopulateFiles(source, manifestFiles);
+            var manifestFiles = CreateManifestFiles(source, package.GetLibFiles());
+            builder.PopulateFiles(source, manifestFiles);
 
-                if (package.GetContentFiles().Any())
-                {
-                    var manifestContentFiles = CreateManifestCotentsFiles(
-                                                        package,
-                                                        destination);
-                    builder.PopulateFiles("", manifestContentFiles);
-                }
+            if (package.GetContentFiles().Any())
+            {
+                var manifestContentFiles = CreateManifestCotentsFiles(
+                                                    package,
+                                                    destination);
+                builder.PopulateFiles("", manifestContentFiles);
             }
 
-            var manifestMetadata = CreateManifestMetadata(context, package, project, source, destination, preRelease);
+            var manifestMetadata = CreateManifestMetadata(package, project, source, destination, preRelease);
             if (manifestMetadata == null)
                 return false;
 
@@ -410,15 +511,17 @@ Old packages moved to [{context.ArchiveFolder}] + copied to the clipboard");
             packageInfo.NewPackageName = packageName;
             string packageFile = Path.Combine(destination, packageName);
 
-            using (FileStream stream = File.Open(packageFile, FileMode.OpenOrCreate, FileAccess.ReadWrite))
+            using (FileStream stream = File.Open(packageFile, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
             {
                 builder.Save(stream);
             }
             return true;
         }
+
         #endregion // CreateNuGet
 
         #region CreateManifestFiles
+
         private static IEnumerable<ManifestFile> CreateManifestFiles(string source,
             IEnumerable<IPackageFile> packageFiles)
         {
@@ -434,9 +537,11 @@ Old packages moved to [{context.ArchiveFolder}] + copied to the clipboard");
             }
             return manifestFiles;
         }
+
         #endregion // CreateManifestFiles
 
         #region CreateManifestCotentsFiles
+
         private static List<ManifestFile> CreateManifestCotentsFiles(IPackage package, string destination)
         {
             List<ManifestFile> manifestFiles = new List<ManifestFile>();
@@ -451,20 +556,24 @@ Old packages moved to [{context.ArchiveFolder}] + copied to the clipboard");
 
             return manifestFiles;
         }
+
         #endregion // CreateManifestCotentsFiles
 
         #region ExtractContent
+
         private static void ExtractContent(IPackage package, string filePath)
         {
             if (!Directory.Exists(Path.Combine(filePath, package.Id)))
                 package.ExtractContents(new PhysicalFileSystem(filePath), package.Id);
         }
+
         #endregion // ExtractContent
 
         #region CreateManifestMetadata
-        private static ManifestMetadata CreateManifestMetadata(OperationContext context, IPackage package, ProjectInfo project, string source, string destination, bool preRelease)
+
+        private static ManifestMetadata CreateManifestMetadata(IPackage package, ProjectInfo project, string source, string destination, bool preRelease)
         {
-            string version = GetVersion(context, package, project, source, preRelease);
+            string version = GetVersion(package, project, source, preRelease);
             if (string.IsNullOrEmpty(version))
                 return null;
 
@@ -482,11 +591,12 @@ Old packages moved to [{context.ArchiveFolder}] + copied to the clipboard");
 
             return metadata;
         }
+
         #endregion // CreateManifestMetadata
 
         #region GetVersion
+
         private static string GetVersion(
-            OperationContext context,
             IPackage package,
             ProjectInfo project,
             string source,
@@ -494,75 +604,35 @@ Old packages moved to [{context.ArchiveFolder}] + copied to the clipboard");
         {
             Version packageVersion = package.Version.Version;
 
-            string targetVersion = null;
-            if (source != null)
-            {
-                string assemblyPath = Path.Combine(source, project.AssemblyName + ".dll");
-                Version version = GetAssemblyVersion(assemblyPath);
+            string assemblyPath = Path.Combine(source, project.AssemblyName + ".dll");
+            Version version = GetAssemblyVersion(assemblyPath);
 
-                /*if (packageVersion >= version)
-                {
-                    MessageBox.Show(@"Version of the NuGet is out of sync with assembly version.
-    You have to increment the assembly version before this process");
-                    return null;
-                }*/
-                targetVersion = version.ToString();
-            }
-            else
+            if (packageVersion >= version)
             {
-                // In case the package has no dlls, take the highest version number of  
-                // the packages that it depends upon (Roi, 26/12/16)               
-                Version highestDependencyVersion = FindHighestDependencyVersion(context, package, project);
-                if (highestDependencyVersion != null)
-                    targetVersion = highestDependencyVersion.ToString();
-                else
-                    targetVersion = packageVersion.ToString();
+                MessageBox.Show(@"Version of the NuGet is out of sync with assembly version.
+You have to increment the assembly version before this process");
+                return null;
             }
+            string targetVersion = version.ToString();
             if (preRelease)
                 targetVersion += "-beta";
             return targetVersion;
         }
+
         #endregion // GetVersion
 
-        private static Version FindHighestDependencyVersion(
-            OperationContext context,
-            IPackage package, 
-            ProjectInfo project)
-        {
-            var dependencies = from dSets in package.DependencySets
-                               from d in dSets.Dependencies
-                               where context.PackagesUpdatedSoFar.Any(p => p.Id == d.Id)
-                               select d;
-
-            Version highestDependencyVersion = null;
-            foreach (var d in dependencies)
-            {
-                // Find version of the dependency package
-                NuGetPackageInfo depPackage = context.PackagesUpdatedSoFar.Find(p => p.Id == d.Id);
-
-                string source = depPackage.ProjectInfo?.OutputPath;
-                
-                if (source != null)
-                {
-                    string assemblyPath = Path.Combine(source, depPackage.ProjectInfo.AssemblyName + ".dll");
-                    Version version = GetAssemblyVersion(assemblyPath);
-
-                    if (highestDependencyVersion == null || version > highestDependencyVersion)
-                        highestDependencyVersion = version;
-                }
-            }
-            return highestDependencyVersion;
-        }
-        
         #region GetAssemblyVersion
+
         private static Version GetAssemblyVersion(string assemblyPath)
         {
             Version version = AssemblyName.GetAssemblyName(assemblyPath).Version;
             return version;
         }
+
         #endregion // GetAssemblyVersion
 
         #region CreateManifestDependencySet
+
         private static List<ManifestDependencySet> CreateManifestDependencySet(IPackage package, string destination)
         {
             List<ManifestDependencySet> depSetList = new List<ManifestDependencySet>();
@@ -585,35 +655,11 @@ Old packages moved to [{context.ArchiveFolder}] + copied to the clipboard");
             depSetList.Add(depSet);
             return depSetList;
         }
+
         #endregion // CreateManifestDependencySet
 
-        private static List<NuGetPackageInfo> GetDependentPackagesWithoutProjects(OperationContext context)
-        {
-            List<NuGetPackageInfo> dependentPackages = new List<NuGetPackageInfo>();
-
-            var packagesWithCorrsepondingProjects =  from p in context.PackagesInfo
-                                                     where p.ProjectInfo != null
-                                                     select p;
-
-            foreach (NuGetPackageInfo package in context.PackagesInfo)
-            {
-                if (package.ProjectInfo == null)
-                {
-                    var dependencies = from dSets in package.NuGetPackage.DependencySets
-                                       from d in dSets.Dependencies
-                                       where packagesWithCorrsepondingProjects.Any(p => p.Id == d.Id)
-                                       select d;
-
-                    if (dependencies.Any())
-                    {
-                        dependentPackages.Add(package);
-                    }                    
-                }
-            }
-            return dependentPackages;
-        }
-
         #region GetLatestPackageVersion
+
         private static string GetLatestPackageVersion(string dependencyId, string dependencyVersion, string destination)
         {
             string lastVersion = dependencyVersion;
@@ -628,79 +674,86 @@ Old packages moved to [{context.ArchiveFolder}] + copied to the clipboard");
             }
             return lastVersion;
         }
+
         #endregion // GetLatestPackageVersion
 
         #region AddBuildEvents
-        private static IDisposable AddBuildEvents(
+
+        private static async TPL.Task<IDisposable> AddBuildEvents(
             ProjectInfo project,
             OperationContext context,
             List<NuGetPackageInfo> dependencies)
         {
-            string text = File.ReadAllText(project.ProjectFile);
-            text = text.Remove(text.IndexOf("</Project>"));
-            text += "<!-- NuGetTool Build Events-->" + Environment.NewLine;
-
             if (dependencies.Count != 0)
             {
-                // Add pre-build events for updating the NuGet packages
-                // TODO: 2016-11 Bnaya, Execute command instead of prebuild event
-                StringBuilder sb = new StringBuilder();
-                sb.Append("<PropertyGroup>").Append(Environment.NewLine);
-                sb.Append("<PreBuildEvent>").Append(Environment.NewLine);
-
-                foreach (NuGetPackageInfo package in dependencies)
+                foreach (var package in dependencies)
                 {
-                    // Check that this package is referenced by the current project
                     if (project.NuGetPackageReferences.Contains(package.Id))
                     {
-                        string updateCommand = $@"call ""{_utilitiesPath}\NuGet.exe"" update $(ProjectDir)packages.config -repositoryPath {context.CacheFolder} -source {package.RepositoryPath} -id {package.Id} -noninteractive";
-                        if (context.PreRelease)
-                            updateCommand += " -prerelease";
-                        sb.Append(updateCommand).Append(Environment.NewLine);
+                        GeneralUtils.ReportStatus($"Update dependencies of {project.Name}");
+
+                        #region External Proc
+
+                        using (var prc = new System.Diagnostics.Process())
+                        {
+                            prc.StartInfo.FileName = $@"{_utilitiesPath}\NuGet.exe";
+                            prc.StartInfo.Arguments = $@"update ""{project.PackageConfigFile}"" -repositoryPath {context.CacheFolder} -source ""{package.RepositoryPath}"" -id {package.Id} -noninteractive";
+                            if (context.PreRelease)
+                                prc.StartInfo.Arguments += " -prerelease";
+                            prc.StartInfo.UseShellExecute = false;
+                            prc.StartInfo.CreateNoWindow = true;
+                            prc.StartInfo.ErrorDialog = false;
+
+                            await TPL.Task.Factory.StartNew(() =>
+                            {
+                                prc.Start();
+                                if (!prc.WaitForExit(30 * 1000))
+                                {
+                                    Trace.WriteLine($@"""{prc.StartInfo.FileName}"" {prc.StartInfo.Arguments}");
+                                    MessageBox.Show($"Fail to update dependencies (timeout)", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                                }
+                            }, TPL.TaskCreationOptions.LongRunning);
+                            if (prc.ExitCode != 0)
+                                MessageBox.Show($"Fail to update dependencies", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        }
+
+                        #endregion // External Proc
                     }
                 }
-                sb.Append("</PreBuildEvent>").Append(Environment.NewLine);
-                sb.Append("</PropertyGroup>");
-                text += sb.ToString() + Environment.NewLine;
             }
 
-            // Add post-build event to fix VS bug that causes the output files to be locked by devenv.exe after build
-            text += "<PropertyGroup>" + Environment.NewLine;
-            text += $"<PostBuildEvent>\"{_utilitiesPath}\\handle.exe\" -p devenv {project.OutputPath}" + " > handles.txt</PostBuildEvent>" + Environment.NewLine;
-            text += "</PropertyGroup>" + Environment.NewLine;
-            text += "</Project>";
-
-            File.WriteAllText(project.ProjectFile, text);
-
-            var result = Disposable.Create(() => RemoveBuildEvents(project));
+            var result = Disposable.Empty;
             return result;
         }
+
         #endregion // AddBuildEvents
 
-        #region RemoveBuildEvents
-        private static void RemoveBuildEvents(ProjectInfo project)
-        {
-            string text = File.ReadAllText(project.ProjectFile);
-            text = text.Remove(text.IndexOf("<!-- NuGetTool Build Events-->"));
-            text += "</Project>";
+        // TODO: 2016-12 Bnaya: use xElement
+        #region // RemoveBuildEvents
 
-            File.WriteAllText(project.ProjectFile, text);
-        }
+
+        //private static void RemoveBuildEvents(ProjectInfo project)
+        //{
+        //    string text = File.ReadAllText(project.ProjectFile);
+        //    text = text.Remove(text.IndexOf("<!-- NuGetTool Build Events-->"));
+        //    text += "</Project>";
+
+        //    File.WriteAllText(project.ProjectFile, text);
+        //}
+
         #endregion // RemoveBuildEvents
 
         #region MoveOldVersionToArchive
+
         private static void MoveOldVersionToArchive(
             NuGetPackageInfo packageInfo,
             OperationContext context)
         {
             try
             {
-
                 if (!context.ShouldArchiveOldNuGet)
                     return;
 
-                //if (!Directory.Exists(context.ArchiveFolder))
-                //    Directory.CreateDirectory(context.ArchiveFolder);
                 if (!Directory.Exists(context.ArchiveSession))
                     Directory.CreateDirectory(context.ArchiveSession);
 
@@ -713,24 +766,30 @@ Old packages moved to [{context.ArchiveFolder}] + copied to the clipboard");
                 throw new Exception(@"Fail to archive old NuGets", ex);
             }
         }
+
         #endregion // MoveOldVersionToArchive
 
         #region CreateArchiveZipFile
-        private static void CreateArchiveZipFile(string archiveFolder)
-        {
-            try
-            {
-                if (!Directory.Exists(archiveFolder))
-                    Directory.CreateDirectory(archiveFolder);
 
-                ZipFile.CreateFromDirectory(archiveFolder, archiveFolder + ".rar");
-                Directory.Delete(archiveFolder, true);
-            }
-            catch (Exception)
+        private static TPL.Task CreateArchiveZipFile(string archiveFolder)
+        {
+            return TPL.Task.Factory.StartNew(() =>
             {
-                MessageBox.Show($"Fail to create Archive, Check if [{archiveFolder}] is valid path", "ERROR", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
+                try
+                {
+                    if (!Directory.Exists(archiveFolder))
+                        Directory.CreateDirectory(archiveFolder);
+
+                    ZipFile.CreateFromDirectory(archiveFolder, archiveFolder + ".rar");
+                    Directory.Delete(archiveFolder, true);
+                }
+                catch (Exception)
+                {
+                    MessageBox.Show($"Fail to create Archive, Check if [{archiveFolder}] is valid path", "ERROR", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }, TPL.TaskCreationOptions.LongRunning);
         }
+
         #endregion // CreateArchiveZipFile
 
         /*private static void RemoveCachedNuGetFiles()
@@ -740,5 +799,6 @@ Old packages moved to [{context.ArchiveFolder}] + copied to the clipboard");
                 Directory.Delete(cachePath, true);
             }
         }*/
+
     }
 }

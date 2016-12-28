@@ -20,7 +20,7 @@ namespace NuGetTool
     /// <summary>
     /// Command handler
     /// </summary>
-    internal sealed class SwitchToDebug
+    internal sealed class SwitchToDebugServices
     {
         private const string PROJ_REF_MODE_TEXT = "Switch to Debug (Project reference mode)";
         private const string NUGET_MODE_TEXT = "Switch back to Nuget mode";
@@ -119,11 +119,9 @@ namespace NuGetTool
         /// See the constructor to see how the menu item is associated with this function using
         /// OleMenuCommandService service and MenuCommand class.
         /// </summary>
-        /// <param name="sender">Event sender.</param>
-        /// <param name="e">Event args.</param>
-        private void MenuItemCallback(object sender, EventArgs e)
+        public static void Switch()
         {
-            OperationContext context = NuGetHelper.LoadNuGetPackages(false);
+            OperationContext context = NuGetServices.LoadNuGetPackages(false);
             if (context == null)
                 return;
 
@@ -135,9 +133,11 @@ namespace NuGetTool
                 SwitchToNuGetMode(context);
         }
 
+        #endregion // Switch
+
         #region SwitchToDebugMode
 
-        private void SwitchToDebugMode(OperationContext context)
+        private static void SwitchToDebugMode(OperationContext context)
         {
             using (GeneralUtils.StartAnimation())
             using (var progress = GeneralUtils.StartProgressProgress("To Project Reference",
@@ -165,7 +165,7 @@ namespace NuGetTool
 
         #region SwitchToNuGetMode
 
-        private void SwitchToNuGetMode(OperationContext context)
+        private static void SwitchToNuGetMode(OperationContext context)
         {
             if (String.IsNullOrEmpty(context.TfsServerUri))
             {
@@ -200,7 +200,7 @@ namespace NuGetTool
 
         #region SwitchProjectToDebug
 
-        private void SwitchProjectToDebug(
+        private static void SwitchProjectToDebug(
             ProjectInfo project,
             OperationContext context)
         {
@@ -212,7 +212,7 @@ namespace NuGetTool
 
         #region SwitchProjectToNuGet
 
-        private void SwitchProjectToNuGet(ProjectInfo project, OperationContext context)
+        private void SwitchProjectToNuGet(ProjectInfo project)
         {
             RevertBackPackageConfigToNuGet(project, context);
             RevertBackProjectFileToNuGet(project, context);
@@ -228,15 +228,15 @@ namespace NuGetTool
         /// </summary>
         /// <param name="project">The project.</param>
         /// <param name="context">The context.</param>
-        private void UpdatePackageConfig(ProjectInfo project, OperationContext context)
+        private void UpdatePackageConfig(
+            ProjectInfo project,
+            OperationContext context)
         {
             // Comment out all NuGet packages in packages.config  
             string packagesConfigFile = Path.Combine(project.Directory, "packages.config");
 
             if (File.Exists(packagesConfigFile))
             {
-                bool hasFilePendingChanges = TFSUtilities.HasFilePendingChanges(packagesConfigFile, context.TfsServerUri);
-
                 //string origText = File.ReadAllText(packagesConfigFile);
                 StringBuilder newText = new StringBuilder();
 
@@ -288,7 +288,7 @@ namespace NuGetTool
 
         #region RevertBackPackageConfigToNuGet
 
-        private void RevertBackPackageConfigToNuGet(ProjectInfo project, OperationContext context)
+        private void RevertBackPackageConfigToNuGet(ProjectInfo project)
         {
             string packagesConfigFile = Path.Combine(project.Directory, "packages.config");
            
@@ -362,7 +362,10 @@ namespace NuGetTool
         #endregion // RevertBackPackageConfigToNuGet
 
         #region UpdateProjectFile
-        private void UpdateProjectFile(ProjectInfo project, OperationContext context)
+
+        private void UpdateProjectFile(
+            ProjectInfo project,
+            OperationContext context)
         {
             string newText = "";
             bool hasFilePendingChanges = TFSUtilities.HasFilePendingChanges(project.ProjectFile, context.TfsServerUri);
@@ -430,6 +433,7 @@ namespace NuGetTool
         #endregion // UpdateProjectFile
 
         #region BuildProjectReference
+
         private string BuildProjectReference(ProjectInfo project)
         {
             string projRef = "";
@@ -449,26 +453,9 @@ namespace NuGetTool
             string textWithoutHashKey = "";
             string origHash = null;
 
-            // Read the hash code
-            using (StreamReader reader = new StreamReader(project.ProjectFile))
-            {
-                // Remove all the project references and add the original NuGet references               
-                while (!reader.EndOfStream)
-                {
-                    string line = reader.ReadLine();
-                    if (line.IndexOf("<!--DebugMode") != -1)
-                    {
-                        // read the hash code
-                        int hashStartPos = line.IndexOf(" ") + 1;
-                        int hashEndPos = line.IndexOf("-->");
-                        origHash = line.Substring(hashStartPos, hashEndPos - hashStartPos);
-                    }
-                    else
-                    {
-                        textWithoutHashKey += line + Environment.NewLine;
-                    }
-                }
-            }
+        private void RevertBackProjectFileToNuGet(ProjectInfo project)
+        {
+            string newText = "";
 
             using (StreamReader reader = new StreamReader(project.ProjectFile))
             {

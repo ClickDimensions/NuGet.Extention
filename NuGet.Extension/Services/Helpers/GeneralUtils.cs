@@ -8,6 +8,7 @@ using System.Reactive.Disposables;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
+using TRD = System.Threading;
 
 namespace NuGetTool.Services
 {
@@ -15,8 +16,10 @@ namespace NuGetTool.Services
     {
         private static IServiceProvider _serviceProvider;
         private static IVsStatusbar _statusBar;
+        private static TaskScheduler _uiScheduler;
         public static void Initialize(Package package)
         {
+            _uiScheduler = TaskScheduler.FromCurrentSynchronizationContext();
             _serviceProvider = package;
 
             _statusBar = (IVsStatusbar)_serviceProvider.GetService(typeof(SVsStatusbar));
@@ -29,7 +32,10 @@ namespace NuGetTool.Services
 
         public static void ReportStatus(string text)
         {
-            _statusBar.SetText(text);
+            TRD.Tasks.Task.Factory.StartNew(() =>
+                _statusBar.SetText(text), 
+                TRD.CancellationToken.None, TaskCreationOptions.None,
+                _uiScheduler);
         }
 
         public static IDisposable StartAnimation()
@@ -38,9 +44,17 @@ namespace NuGetTool.Services
             object icon = (short)Constants.SBAI_Save;
 
             // Display the icon in the Animation region.  
-            _statusBar.Animation(1, ref icon);
+            TRD.Tasks.Task.Factory.StartNew(() =>
+                        _statusBar.Animation(1, ref icon),
+                         TRD.CancellationToken.None, TaskCreationOptions.None,
+                         _uiScheduler);
 
-            return Disposable.Create(() => _statusBar.Animation(0, ref icon));
+            return Disposable.Create(() =>
+            TRD.Tasks.Task.Factory.StartNew(() =>
+                    _statusBar.Animation(0, ref icon),
+                        TRD.CancellationToken.None, TaskCreationOptions.None,
+                        _uiScheduler)
+                );
         }
 
         public static void ShowMessage(string message, OLEMSGICON warningLevel = OLEMSGICON.OLEMSGICON_INFO, string title = "NuGetTool")
@@ -96,7 +110,10 @@ namespace NuGetTool.Services
             public void Report(int progress)
             {
                 _progress = progress;
-                _statusBar.Progress(ref _cookie, 1, _name, (uint)progress, _count);
+                TRD.Tasks.Task.Factory.StartNew(() =>
+                    _statusBar.Progress(ref _cookie, 1, _name, (uint)progress, _count),
+                    TRD.CancellationToken.None, TaskCreationOptions.None,
+                      _uiScheduler);
             }
 
             public void Increment()
@@ -106,7 +123,10 @@ namespace NuGetTool.Services
 
             public void Dispose()
             {
-                _statusBar.Progress(ref _cookie, 0, "", 0, 0);
+                TRD.Tasks.Task.Factory.StartNew(() =>
+                   _statusBar.Progress(ref _cookie, 0, "", 0, 0),
+                   TRD.CancellationToken.None, TaskCreationOptions.None,
+                     _uiScheduler);
             }
         }
     }
