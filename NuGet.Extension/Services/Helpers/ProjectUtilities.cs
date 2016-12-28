@@ -107,6 +107,10 @@ namespace NuGetTool
                 return false;
             }
 
+            // Verify that the solution and all its projects are fully loaded
+            var solution4 = _serviceProvider.GetService(typeof(SVsSolution)) as IVsSolution4;
+            solution4.EnsureSolutionIsLoaded(0);
+
             IEnumHierarchies enumerator = null;
             Guid guid = Guid.Empty;
             solution.GetProjectEnum((uint)__VSENUMPROJFLAGS.EPF_LOADEDINSOLUTION, ref guid, out enumerator);

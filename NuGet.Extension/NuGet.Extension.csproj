@@ -53,18 +53,19 @@
     <CopyVsixExtensionFiles>True</CopyVsixExtensionFiles>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="Services\GeneralUtils.cs" />
-    <Compile Include="Services\NuGetHelper.cs" />
+    <Compile Include="Services\Helpers\GeneralUtils.cs" />
+    <Compile Include="Services\NuGetServices.cs" />
     <Compile Include="DTO%27s\NuGetPackageInfo.cs" />
     <Compile Include="DTO%27s\Setting.cs" />
     <Compile Include="NuGetToolOptionsPage.cs">
       <SubType>Component</SubType>
     </Compile>
     <Compile Include="DTO%27s\ProjectInfo.cs" />
-    <Compile Include="Services\ProjectUtilities.cs" />
+    <Compile Include="Services\Helpers\ProjectUtilities.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Services\SwitchToDebugServices.cs" />
     <Compile Include="Services\TFSUtilities.cs" />
-    <Compile Include="SwitchToDebug.cs" />
+    <Compile Include="Commands\SwitchToDebugCommand.cs" />
     <Compile Include="NuGetToolPackage.cs" />
     <Compile Include="Visual\ToolOptionsUserControl.cs">
       <SubType>UserControl</SubType>
@@ -72,9 +73,9 @@
     <Compile Include="Visual\ToolOptionsUserControl.Designer.cs">
       <DependentUpon>ToolOptionsUserControl.cs</DependentUpon>
     </Compile>
-    <Compile Include="DTO%27s\OperationContext.cs" />
-    <Compile Include="UpgradeNuGet.cs" />
-    <Compile Include="UpgradeNuGetBeta.cs" />
+    <Compile Include="OperationContext.cs" />
+    <Compile Include="Commands\UpgradeNuGetCommand.cs" />
+    <Compile Include="Commands\UpgradeNuGetBetaCommand.cs" />
     <Compile Include="VSPackage.Designer.cs">
       <AutoGen>True</AutoGen>
       <DesignTime>True</DesignTime>
