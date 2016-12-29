@@ -359,11 +359,32 @@ namespace NuGetTool
         #endregion // BuildProjectReference
 
         #region RevertBackProjectFileToNuGet
-        private static void RevertBackProjectFileToNuGet(ProjectInfo project, OperationContext context)
+        private void RevertBackProjectFileToNuGet(ProjectInfo project, OperationContext context)
         {
             string newText = "";
             string textWithoutHashKey = "";
             string origHash = null;
+
+            // Read the hash code
+            using (StreamReader reader = new StreamReader(project.ProjectFile))
+            {
+                // Remove all the project references and add the original NuGet references               
+                while (!reader.EndOfStream)
+                {
+                    string line = reader.ReadLine();
+                    if (line.IndexOf("<!--DebugMode") != -1)
+                    {
+                        // read the hash code
+                        int hashStartPos = line.IndexOf(" ") + 1;
+                        int hashEndPos = line.IndexOf("-->");
+                        origHash = line.Substring(hashStartPos, hashEndPos - hashStartPos);
+                    }
+                    else
+                    {
+                        textWithoutHashKey += line + Environment.NewLine;
+                    }
+                }
+            }
 
             using (StreamReader reader = new StreamReader(project.ProjectFile))
             {
@@ -374,9 +395,9 @@ namespace NuGetTool
 
                     // Skip the debug mode comment line
                     if (line.IndexOf("<!--DebugMode") != -1)
-                    {                        
+                    {
                         continue;
-                    }                    
+                    }
 
                     if (line.IndexOf("<!--NuGetTool") != -1)
                     {
@@ -385,24 +406,24 @@ namespace NuGetTool
                         newText += uncommentedLine + Environment.NewLine;
 
                         // Read until the end of the comment
-                        line = reader.ReadLine();                       
+                        line = reader.ReadLine();
                         while (line.IndexOf("</Reference>") == -1)
                         {
                             newText += line + Environment.NewLine;
-                            line = reader.ReadLine();                            
+                            line = reader.ReadLine();
                         }
 
                         // Remove the end of the comment
                         int endOfCommentPos = line.IndexOf("-->");
                         uncommentedLine = line.Substring(0, endOfCommentPos);
-                        newText += uncommentedLine + Environment.NewLine;                        
+                        newText += uncommentedLine + Environment.NewLine;
 
                         // Remove the project reference
-                        line = reader.ReadLine();                     
+                        line = reader.ReadLine();
 
                         while (line.IndexOf("</ProjectReference>") == -1)
                         {
-                            line = reader.ReadLine();                            
+                            line = reader.ReadLine();
                         }
                     }
                     else
@@ -411,7 +432,7 @@ namespace NuGetTool
                     }
                 }
             }
-                   
+
             // If the file was checked out first time by the tool, and has not changed
             // outside the tool, then undo the check out when switching back to NuGet mode     
             if (!String.IsNullOrEmpty(origHash))
@@ -427,7 +448,7 @@ namespace NuGetTool
             else
             {
                 File.WriteAllText(project.ProjectFile, newText);
-            }      
+            }
         }
 
         #endregion // RevertBackProjectFileToNuGet
