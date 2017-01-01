@@ -392,7 +392,9 @@ Choose one of the following actions:
                     progress.Report(i);
                     if (!project.ProjectBuilt)
                     {
-                        using (await UpdateNuGetDependencies(project, context, context.PackagesUpdatedSoFar))
+                        // TODO: 2017-01 Bnaya, use UpdateNuGetDependencies instead of AddBuildEvents
+                        //using (await UpdateNuGetDependencies(project, context, context.PackagesUpdatedSoFar))
+                        using (AddBuildEvents(project, context, context.PackagesUpdatedSoFar))
                         {
                             if (await context.Projects.BuildProject(project))
                                 project.ProjectBuilt = true;
@@ -428,7 +430,9 @@ Choose one of the following actions:
                     return errorMsg;
                 }
 
-                using (await AddBuildEvents(project, context, context.PackagesUpdatedSoFar))
+                // TODO: 2017-01 Bnaya, use UpdateNuGetDependencies instead of AddBuildEvents
+                using (await UpdateNuGetDependencies(project, context, context.PackagesUpdatedSoFar))
+                //using (AddBuildEvents(project, context, context.PackagesUpdatedSoFar))
                 {
                     if (!await context.Projects.BuildProject(project))
                     {
