@@ -326,7 +326,9 @@ Choose one of the following actions:
                 ProjectInfo project = packageInfo.ProjectInfo;
                 await RecoverOldVersionFromArchive(packageInfo, context);
 
-                using (await AddBuildEvents(project, context, context.RecoveredPackages))
+                // TODO: 2017-01 Bnaya, use UpdateNuGetDependencies instead of AddBuildEvents
+                //using (await UpdateNuGetDependencies(project, context, context.RecoveredPackages))
+                using (AddBuildEvents(project, context, context.RecoveredPackages))
                 {
                     if (! await context.Projects.BuildProject(project))
                     {
@@ -384,7 +386,7 @@ Choose one of the following actions:
                     progress.Report(i);
                     if (!project.ProjectBuilt)
                     {
-                        using (await AddBuildEvents(project, context, context.PackagesUpdatedSoFar))
+                        using (await UpdateNuGetDependencies(project, context, context.PackagesUpdatedSoFar))
                         {
                             if (await context.Projects.BuildProject(project))
                                 project.ProjectBuilt = true;
@@ -415,7 +417,7 @@ Choose one of the following actions:
                 #region Build Project
 
                 ProjectInfo project = packageInfo.ProjectInfo;
-                using (await AddBuildEvents(project, context, context.PackagesUpdatedSoFar))
+                using (await UpdateNuGetDependencies(project, context, context.PackagesUpdatedSoFar))
                 {
                     if (!await context.Projects.BuildProject(project))
                     {
@@ -677,9 +679,9 @@ You have to increment the assembly version before this process");
 
         #endregion // GetLatestPackageVersion
 
-        #region AddBuildEvents
+        #region UpdateNuGetDependencies
 
-        private static async TPL.Task<IDisposable> AddBuildEvents(
+        private static async TPL.Task<IDisposable> UpdateNuGetDependencies(
             ProjectInfo project,
             OperationContext context,
             List<NuGetPackageInfo> dependencies)
@@ -697,7 +699,8 @@ You have to increment the assembly version before this process");
                         using (var prc = new System.Diagnostics.Process())
                         {
                             prc.StartInfo.FileName = $@"{_utilitiesPath}\NuGet.exe";
-                            prc.StartInfo.Arguments = $@"update ""{project.PackageConfigFile}"" -repositoryPath {context.CacheFolder} -source ""{package.RepositoryPath}"" -id {package.Id} -noninteractive";
+                            // https://msdn.microsoft.com/en-us/library/ms164311.aspx
+                            prc.StartInfo.Arguments = $@"update ""{project.PackageConfigFile}"" -repositoryPath {package.RepositoryPath} -source ""{string.Join(";", context.PackagesSources)};https://api.nuget.org/v3/index.json"" -id {package.Id} -noninteractive";
                             if (context.PreRelease)
                                 prc.StartInfo.Arguments += " -prerelease";
                             prc.StartInfo.UseShellExecute = false;
@@ -726,22 +729,71 @@ You have to increment the assembly version before this process");
             return result;
         }
 
-        #endregion // AddBuildEvents
+        #endregion // UpdateNuGetDependencies
+
+        #region AddBuildEvents
+
+        private static IDisposable AddBuildEvents(
+            ProjectInfo project,
+            OperationContext context,
+            List<NuGetPackageInfo> dependencies)
+        {
+            string text = File.ReadAllText(project.ProjectFile);
+            text = text.Remove(text.IndexOf("</Project>"));
+            text += "<!-- NuGetTool Build Events-->" + Environment.NewLine;
+
+            if (dependencies.Count != 0)
+            {
+                // Add pre-build events for updating the NuGet packages
+                // TODO: 2016-11 Bnaya, Execute command instead of prebuild event
+                StringBuilder sb = new StringBuilder();
+                sb.Append("<PropertyGroup>").Append(Environment.NewLine);
+                sb.Append("<PreBuildEvent>").Append(Environment.NewLine);
+
+                foreach (NuGetPackageInfo package in dependencies)
+                {
+                    // Check that this package is referenced by the current project
+                    if (project.NuGetPackageReferences.Contains(package.Id))
+                    {
+                        string updateCommand = $@"call ""{_utilitiesPath}\NuGet.exe"" update $(ProjectDir)packages.config -repositoryPath {context.CacheFolder} -source {package.RepositoryPath} -id {package.Id} -noninteractive";
+                        if (context.PreRelease)
+                            updateCommand += " -prerelease";
+                        sb.Append(updateCommand).Append(Environment.NewLine);
+                    }
+                }
+                sb.Append("</PreBuildEvent>").Append(Environment.NewLine);
+                sb.Append("</PropertyGroup>");
+                text += sb.ToString() + Environment.NewLine;
+            }
+
+            // Add post-build event to fix VS bug that causes the output files to be locked by devenv.exe after build
+            text += "<PropertyGroup>" + Environment.NewLine;
+            text += $"<PostBuildEvent>\"{_utilitiesPath}\\handle.exe\" -p devenv {project.OutputPath}" + " > handles.txt</PostBuildEvent>" + Environment.NewLine;
+            text += "</PropertyGroup>" + Environment.NewLine;
+            text += "</Project>";
+
+            File.WriteAllText(project.ProjectFile, text);
+
+            var result = Disposable.Create(() => RemoveBuildEvents(project));
+            return result;
+        }
 
         // TODO: 2016-12 Bnaya: use xElement
-        #region // RemoveBuildEvents
+        #endregion // AddBuildEvents
 
+        #region RemoveBuildEvents
 
-        //private static void RemoveBuildEvents(ProjectInfo project)
-        //{
-        //    string text = File.ReadAllText(project.ProjectFile);
-        //    text = text.Remove(text.IndexOf("<!-- NuGetTool Build Events-->"));
-        //    text += "</Project>";
+        private static void RemoveBuildEvents(ProjectInfo project)
+        {
+            string text = File.ReadAllText(project.ProjectFile);
+            text = text.Remove(text.IndexOf("<!-- NuGetTool Build Events-->"));
+            text += "</Project>";
 
-        //    File.WriteAllText(project.ProjectFile, text);
-        //}
+            File.WriteAllText(project.ProjectFile, text);
+        }
 
         #endregion // RemoveBuildEvents
+
 
         #region MoveOldVersionToArchive
 

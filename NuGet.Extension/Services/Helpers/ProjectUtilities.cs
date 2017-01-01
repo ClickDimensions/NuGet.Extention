@@ -400,7 +400,7 @@ namespace NuGetTool
 
         #region BuildProject
 
-        public async Task<bool> BuildProject(ProjectInfo project)
+        public /*async*/ Task<bool> BuildProject(ProjectInfo project)
         {
             DTE dte = (DTE)_serviceProvider.GetService(typeof(DTE));
             SolutionBuild solutionBuild = dte.Solution.SolutionBuild;
@@ -409,14 +409,16 @@ namespace NuGetTool
 
             GeneralUtils.ReportStatus($"Build: {project.Name}");
 
-            await TRD.Tasks.Task.Factory.StartNew(() =>
-                        solutionBuild.BuildProject(solutionConfiguration, project.FullName, true),
-                        TaskCreationOptions.LongRunning);
+            // TODO: 2017-01 Bnaya, Use the async version
+            solutionBuild.BuildProject(solutionConfiguration, project.FullName, true);
+            //await TRD.Tasks.Task.Factory.StartNew(() =>
+            //            solutionBuild.BuildProject(solutionConfiguration, project.FullName, true),
+            //            TaskCreationOptions.LongRunning);
 
             bool compiledOK = (solutionBuild.LastBuildInfo == 0);
             if (!compiledOK && System.Diagnostics.Debugger.IsAttached)
                 System.Diagnostics.Debugger.Break();
-            return compiledOK;
+            return TRD.Tasks.Task.FromResult(compiledOK);
         }
 
         #endregion // BuildProject
