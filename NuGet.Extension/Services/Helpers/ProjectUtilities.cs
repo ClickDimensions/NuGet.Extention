@@ -107,6 +107,10 @@ namespace NuGetTool
                 return false;
             }
 
+            // Verify that the solution and all its projects are fully loaded
+            var solution4 = _serviceProvider.GetService(typeof(SVsSolution)) as IVsSolution4;
+            solution4.EnsureSolutionIsLoaded(0);
+
             IEnumHierarchies enumerator = null;
             Guid guid = Guid.Empty;
             solution.GetProjectEnum((uint)__VSENUMPROJFLAGS.EPF_LOADEDINSOLUTION, ref guid, out enumerator);
@@ -154,7 +158,7 @@ namespace NuGetTool
             bool inDebugMode = IsInDebugMode(proj);
 
             ProjectInfo project = new ProjectInfo(
-                guid, name, projectFile, assemblyName, fullName, 
+                guid, name, projectFile, assemblyName, fullName,
                 outputPath, inDebugMode);
 
             // Find the matching NuGet package to this project
@@ -249,7 +253,7 @@ namespace NuGetTool
         {
             string projectFile = GetProjectFilePath(project);
             bool isDebugMode = File.ReadLines(projectFile)
-                                    .Any(line => line.IndexOf("<!--DebugMode-->") != -1);
+                                    .Any(line => line.IndexOf("<!--DebugMode") != -1);
 
             return isDebugMode;
         }
@@ -431,7 +435,7 @@ namespace NuGetTool
             SolutionBuild solutionBuild = dte.Solution.SolutionBuild;
 
             string solutionConfiguration = solutionBuild.ActiveConfiguration.Name;
-            
+
             await TRD.Tasks.Task.Factory.StartNew(() =>
                             solutionBuild.Build(true),
                             TaskCreationOptions.LongRunning);

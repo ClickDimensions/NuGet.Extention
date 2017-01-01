@@ -1,4 +1,4 @@
-﻿//------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // <copyright file="UpgradeNuGetBeta.cs" company="Company">
 //     Copyright (c) Company.  All rights reserved.
 // </copyright>

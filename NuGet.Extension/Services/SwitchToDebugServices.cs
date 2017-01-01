@@ -13,6 +13,7 @@ using System.IO;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using NuGetTool.Services;
 
 namespace NuGetTool
 {
@@ -76,6 +77,11 @@ namespace NuGetTool
 
         private static void SwitchToNuGetMode(OperationContext context)
         {
+            if (String.IsNullOrEmpty(context.TfsServerUri))
+            {
+                GeneralUtils.ShowMessage("TFS server uri is missing in Tools->Options->Nuget Tool page", OLEMSGICON.OLEMSGICON_WARNING);
+            }
+
             using (GeneralUtils.StartAnimation())
             using (var progress = GeneralUtils.StartProgressProgress("Back to NuGet",
                                         context.Projects.LoadedProjects.Length + 1))
@@ -86,11 +92,11 @@ namespace NuGetTool
                     {
                         progress.Increment();
                         GeneralUtils.ReportStatus($"Switching [{project.Name}]");
-                        SwitchProjectToNuGet(project);
+                        SwitchProjectToNuGet(project, context);
                     }
                     catch (Exception ex)
                     {
-                        GeneralUtils.ShowMessage("Failed to conver project: " + project.Name + ", Error message: " + ex.Message, OLEMSGICON.OLEMSGICON_CRITICAL);
+                        GeneralUtils.ShowMessage("Failed to convert project: " + project.Name + ", Error message: " + ex.Message, OLEMSGICON.OLEMSGICON_CRITICAL);
                     }
                 }
 
@@ -116,10 +122,10 @@ namespace NuGetTool
 
         #region SwitchProjectToNuGet
 
-        private static void SwitchProjectToNuGet(ProjectInfo project)
+        private static void SwitchProjectToNuGet(ProjectInfo project, OperationContext context)
         {
-            RevertBackPackageConfigToNuGet(project);
-            RevertBackProjectFileToNuGet(project);
+            RevertBackPackageConfigToNuGet(project, context);
+            RevertBackProjectFileToNuGet(project, context);
         }
 
         #endregion // SwitchProjectToNuGet
@@ -141,6 +147,9 @@ namespace NuGetTool
 
             if (File.Exists(packagesConfigFile))
             {
+                bool hasFilePendingChanges = TFSUtilities.HasFilePendingChanges(packagesConfigFile, context.TfsServerUri);
+
+                //string origText = File.ReadAllText(packagesConfigFile);
                 StringBuilder newText = new StringBuilder();
 
                 foreach (var line in File.ReadLines(packagesConfigFile))
@@ -169,6 +178,15 @@ namespace NuGetTool
                 }
 
                 File.WriteAllText(packagesConfigFile, newText.ToString());
+
+                // Compute hash for the file (so we can check if it has changed when switching back to NuGet)
+                string hash64 = null;
+                if (!hasFilePendingChanges)
+                {
+                    hash64 = GeneralUtils.ComputeHash(packagesConfigFile);
+                }
+                newText.AppendLine($"<!--DebugMode {hash64}-->");                                
+                File.WriteAllText(packagesConfigFile, newText.ToString());
             }
             else
             {
@@ -182,13 +200,15 @@ namespace NuGetTool
 
         #region RevertBackPackageConfigToNuGet
 
-        private static void RevertBackPackageConfigToNuGet(ProjectInfo project)
+        private static void RevertBackPackageConfigToNuGet(ProjectInfo project, OperationContext context)
         {
             string packagesConfigFile = Path.Combine(project.Directory, "packages.config");
-
+           
             if (File.Exists(packagesConfigFile))
             {
+                string textWithoutHashKey = "";                
                 string newText = "";
+                string origHash = null;
 
                 using (StreamReader reader = new StreamReader(packagesConfigFile))
                 {
@@ -196,12 +216,28 @@ namespace NuGetTool
                     {
                         string line = reader.ReadLine();
 
+                        if (line.IndexOf("<!--DebugMode") != -1)
+                        {
+                            // read the hash code
+                            int hashStartPos = line.IndexOf(" ") + 1;
+                            int hashEndPos = line.IndexOf("-->");
+                            origHash = line.Substring(hashStartPos, hashEndPos - hashStartPos);
+                            continue;
+                        }
+                        else
+                        {
+                            textWithoutHashKey += line + Environment.NewLine;
+                        }
+                       
                         if (line.IndexOf("<!--NuGetTool") != -1)
                         {
                             int packageStartPos = line.IndexOf("<package");
-                            int packageEndPos = line.IndexOf("/>", packageStartPos + 1);
-                            string uncommentedLine = line.Substring(packageStartPos, packageEndPos - packageStartPos + 2).Trim();
-                            newText += "  " + uncommentedLine + Environment.NewLine;
+                            if (packageStartPos != -1)
+                            {
+                                int packageEndPos = line.IndexOf("/>", packageStartPos + 1);
+                                string uncommentedLine = line.Substring(packageStartPos, packageEndPos - packageStartPos + 2).Trim();
+                                newText += "  " + uncommentedLine + Environment.NewLine;
+                            }                            
                         }
                         else
                         {
@@ -210,7 +246,24 @@ namespace NuGetTool
                     }
                 }
 
-                File.WriteAllText(packagesConfigFile, newText);
+                // If the file was checked out first time by the tool, and has not changed
+                // outside the tool, then undo the check out when switching back to NuGet mode     
+                if (!String.IsNullOrEmpty(origHash))
+                {
+                    File.WriteAllText(packagesConfigFile, textWithoutHashKey);
+                    string newHash = GeneralUtils.ComputeHash(packagesConfigFile);
+                    File.WriteAllText(packagesConfigFile, newText);
+
+                    // If the files are identical, then undo the checkout
+                    if (origHash == newHash)
+                    {
+                        TFSUtilities.UndoCheckOut(packagesConfigFile, context.TfsServerUri);
+                    }
+                }
+                else
+                {
+                    File.WriteAllText(packagesConfigFile, newText);
+                }
             }
             else
             {
@@ -227,14 +280,10 @@ namespace NuGetTool
             OperationContext context)
         {
             string newText = "";
+            bool hasFilePendingChanges = TFSUtilities.HasFilePendingChanges(project.ProjectFile, context.TfsServerUri);
 
             using (StreamReader reader = new StreamReader(project.ProjectFile))
             {
-                // Add debug mode comment
-                string xmlDeclarationLine = reader.ReadLine();
-                newText += xmlDeclarationLine + Environment.NewLine;
-                newText += "<!--DebugMode-->" + Environment.NewLine;
-
                 // Comment out all NuGet references to projects in the solution
                 // and add project references instead of them
                 while (!reader.EndOfStream)
@@ -282,10 +331,17 @@ namespace NuGetTool
                     }
                 }
             }
-
             File.WriteAllText(project.ProjectFile, newText);
-        }
 
+            // Compute hash for the file (so we can check if it has changed when switching back to NuGet)
+            string hash64 = null;
+            if (!hasFilePendingChanges)
+            {
+                hash64 = GeneralUtils.ComputeHash(project.ProjectFile);                
+            }
+            newText += $"<!--DebugMode {hash64}-->";
+            File.WriteAllText(project.ProjectFile, newText.ToString());
+        }
         #endregion // UpdateProjectFile
 
         #region BuildProjectReference
@@ -300,14 +356,35 @@ namespace NuGetTool
 
             return projRef;
         }
-
         #endregion // BuildProjectReference
 
         #region RevertBackProjectFileToNuGet
-
-        private static void RevertBackProjectFileToNuGet(ProjectInfo project)
+        private void RevertBackProjectFileToNuGet(ProjectInfo project, OperationContext context)
         {
             string newText = "";
+            string textWithoutHashKey = "";
+            string origHash = null;
+
+            // Read the hash code
+            using (StreamReader reader = new StreamReader(project.ProjectFile))
+            {
+                // Remove all the project references and add the original NuGet references               
+                while (!reader.EndOfStream)
+                {
+                    string line = reader.ReadLine();
+                    if (line.IndexOf("<!--DebugMode") != -1)
+                    {
+                        // read the hash code
+                        int hashStartPos = line.IndexOf(" ") + 1;
+                        int hashEndPos = line.IndexOf("-->");
+                        origHash = line.Substring(hashStartPos, hashEndPos - hashStartPos);
+                    }
+                    else
+                    {
+                        textWithoutHashKey += line + Environment.NewLine;
+                    }
+                }
+            }
 
             using (StreamReader reader = new StreamReader(project.ProjectFile))
             {
@@ -317,8 +394,10 @@ namespace NuGetTool
                     string line = reader.ReadLine();
 
                     // Skip the debug mode comment line
-                    if (line.IndexOf("<!--DebugMode-->") != -1)
+                    if (line.IndexOf("<!--DebugMode") != -1)
+                    {
                         continue;
+                    }
 
                     if (line.IndexOf("<!--NuGetTool") != -1)
                     {
@@ -341,6 +420,7 @@ namespace NuGetTool
 
                         // Remove the project reference
                         line = reader.ReadLine();
+
                         while (line.IndexOf("</ProjectReference>") == -1)
                         {
                             line = reader.ReadLine();
@@ -353,7 +433,22 @@ namespace NuGetTool
                 }
             }
 
-            File.WriteAllText(project.ProjectFile, newText);
+            // If the file was checked out first time by the tool, and has not changed
+            // outside the tool, then undo the check out when switching back to NuGet mode     
+            if (!String.IsNullOrEmpty(origHash))
+            {
+                File.WriteAllText(project.ProjectFile, textWithoutHashKey);
+                string newHash = GeneralUtils.ComputeHash(project.ProjectFile);
+                File.WriteAllText(project.ProjectFile, newText);
+                if (origHash == newHash)
+                {
+                    TFSUtilities.UndoCheckOut(project.ProjectFile, context.TfsServerUri);
+                }
+            }
+            else
+            {
+                File.WriteAllText(project.ProjectFile, newText);
+            }
         }
 
         #endregion // RevertBackProjectFileToNuGet

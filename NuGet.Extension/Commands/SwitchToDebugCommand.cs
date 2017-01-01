@@ -1,4 +1,4 @@
-﻿//------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // <copyright file="SwitchToDebug.cs" company="Company">
 //     Copyright (c) Company.  All rights reserved.
 // </copyright>
@@ -85,7 +85,7 @@ namespace NuGetTool
             var myCommand = sender as OleMenuCommand;
             if (myCommand != null)
             {
-                bool? debugMode = ProjectUtilities.IsInDebugMode(); 
+                bool? debugMode = ProjectUtilities.IsInDebugMode();
                 if (debugMode == null)
                 {
                     myCommand.Text = "Not accessable";

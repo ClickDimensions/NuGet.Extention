@@ -18,6 +18,7 @@ using System.Windows.Forms;
 using System.Xml.Linq;
 using TRD = System.Threading;
 using TPL = System.Threading.Tasks;
+using NuGetTool.Services;
 
 namespace NuGetTool
 {
@@ -136,6 +137,11 @@ MessageBoxIcon.Question) == DialogResult.No)
                     var packagesToBuild = (from p in context.PackagesInfo
                                            where p.ProjectInfo != null
                                            select p).ToList();
+
+                    // Add NuGet packages that have no corrseponding projects in current solution,
+                    // but depend on other NuGet packages that need to upgrade
+                    var dependentPackagesWithoutProjects = GetDependentPackagesWithoutProjects(context);
+                    packagesToBuild.AddRange(dependentPackagesWithoutProjects);
 
                     #region Validation
 
@@ -415,9 +421,14 @@ Choose one of the following actions:
             try
             {
                 #region Build Project
-
                 ProjectInfo project = packageInfo.ProjectInfo;
-                using (await UpdateNuGetDependencies(project, context, context.PackagesUpdatedSoFar))
+                string errorMsg = VerifyProjectReadyForUpgrade(project);
+                if (errorMsg != null)
+                {
+                    return errorMsg;
+                }
+
+                using (await AddBuildEvents(project, context, context.PackagesUpdatedSoFar))
                 {
                     if (!await context.Projects.BuildProject(project))
                     {
@@ -452,7 +463,7 @@ set all of its reference to [copy local = false].";
 
                 // create a new NuGet package (we need to keep the old version to allow the update
                 // of the NuGet version in the project references)
-                if (!CreateNuGet(packageInfo, project, source, destination, context.PreRelease))
+                if (!CreateNuGet(packageInfo, project, source, destination, context.PreRelease, context))
                     return "Assembly version must increase before the process";
 
                 MoveOldVersionToArchive(packageInfo, context);
@@ -471,6 +482,16 @@ set all of its reference to [copy local = false].";
 
         #endregion // UpdateSinglePackage
 
+        private static string VerifyProjectReadyForUpgrade(ProjectInfo project)
+        {
+            // Check that there is no more than one csproj file
+            if (Directory.GetFiles(project.Directory, "*.csproj").Count() > 1)
+            {
+                return $"The folder {project.Directory} contains more than one csproj file";
+            }
+            return null;
+        }
+
         #region CreateNuGet
 
         /// <summary>
@@ -487,7 +508,8 @@ set all of its reference to [copy local = false].";
             ProjectInfo project,
             string source,
             string destination,
-            bool preRelease)
+            bool preRelease,
+            OperationContext context)
         {
             IPackage package = packageInfo.NuGetPackage;
             PackageBuilder builder = new PackageBuilder();
@@ -503,7 +525,7 @@ set all of its reference to [copy local = false].";
                 builder.PopulateFiles("", manifestContentFiles);
             }
 
-            var manifestMetadata = CreateManifestMetadata(package, project, source, destination, preRelease);
+            var manifestMetadata = CreateManifestMetadata(package, project, source, destination, preRelease, context);
             if (manifestMetadata == null)
                 return false;
 
@@ -573,9 +595,9 @@ set all of its reference to [copy local = false].";
 
         #region CreateManifestMetadata
 
-        private static ManifestMetadata CreateManifestMetadata(IPackage package, ProjectInfo project, string source, string destination, bool preRelease)
+        private static ManifestMetadata CreateManifestMetadata(IPackage package, ProjectInfo project, string source, string destination, bool preRelease, OperationContext context)
         {
-            string version = GetVersion(package, project, source, preRelease);
+            string version = GetVersion(package, project, source, preRelease, context);
             if (string.IsNullOrEmpty(version))
                 return null;
 
@@ -602,20 +624,35 @@ set all of its reference to [copy local = false].";
             IPackage package,
             ProjectInfo project,
             string source,
-            bool preRelease)
+            bool preRelease,
+            OperationContext context)
         {
             Version packageVersion = package.Version.Version;
 
-            string assemblyPath = Path.Combine(source, project.AssemblyName + ".dll");
-            Version version = GetAssemblyVersion(assemblyPath);
-
-            if (packageVersion >= version)
+            string targetVersion = null;
+            if (source != null)
             {
-                MessageBox.Show(@"Version of the NuGet is out of sync with assembly version.
-You have to increment the assembly version before this process");
-                return null;
+                string assemblyPath = Path.Combine(source, project.AssemblyName + ".dll");
+                Version version = GetAssemblyVersion(assemblyPath);
+
+                if (packageVersion >= version)
+                {
+                    MessageBox.Show(@"Version of the NuGet is out of sync with assembly version.
+    You have to increment the assembly version before this process");
+                    return null;
+                }
+                targetVersion = version.ToString();
             }
-            string targetVersion = version.ToString();
+            else
+            {
+                // In case the package has no dlls, take the highest version number of  
+                // the packages that it depends upon (Roi, 26/12/16)               
+                Version highestDependencyVersion = FindHighestDependencyVersion(context, package, project);
+                if (highestDependencyVersion != null)
+                    targetVersion = highestDependencyVersion.ToString();
+                else
+                    targetVersion = packageVersion.ToString();
+            }
             if (preRelease)
                 targetVersion += "-beta";
             return targetVersion;
@@ -659,6 +696,32 @@ You have to increment the assembly version before this process");
         }
 
         #endregion // CreateManifestDependencySet
+
+        private static List<NuGetPackageInfo> GetDependentPackagesWithoutProjects(OperationContext context)
+        {
+            List<NuGetPackageInfo> dependentPackages = new List<NuGetPackageInfo>();
+
+            var packagesWithCorrsepondingProjects = from p in context.PackagesInfo
+                                                    where p.ProjectInfo != null
+                                                    select p;
+
+            foreach (NuGetPackageInfo package in context.PackagesInfo)
+            {
+                if (package.ProjectInfo == null)
+                {
+                    var dependencies = from dSets in package.NuGetPackage.DependencySets
+                                       from d in dSets.Dependencies
+                                       where packagesWithCorrsepondingProjects.Any(p => p.Id == d.Id)
+                                       select d;
+
+                    if (dependencies.Any())
+                    {
+                        dependentPackages.Add(package);
+                    }
+                }
+            }
+            return dependentPackages;
+        }
 
         #region GetLatestPackageVersion
 
@@ -843,6 +906,36 @@ You have to increment the assembly version before this process");
         }
 
         #endregion // CreateArchiveZipFile
+
+        private static Version FindHighestDependencyVersion(
+            OperationContext context,
+            IPackage package,
+            ProjectInfo project)
+        {
+            var dependencies = from dSets in package.DependencySets
+                               from d in dSets.Dependencies
+                               where context.PackagesUpdatedSoFar.Any(p => p.Id == d.Id)
+                               select d;
+
+            Version highestDependencyVersion = null;
+            foreach (var d in dependencies)
+            {
+                // Find version of the dependency package
+                NuGetPackageInfo depPackage = context.PackagesUpdatedSoFar.Find(p => p.Id == d.Id);
+
+                string source = depPackage.ProjectInfo?.OutputPath;
+
+                if (source != null)
+                {
+                    string assemblyPath = Path.Combine(source, depPackage.ProjectInfo.AssemblyName + ".dll");
+                    Version version = GetAssemblyVersion(assemblyPath);
+
+                    if (highestDependencyVersion == null || version > highestDependencyVersion)
+                        highestDependencyVersion = version;
+                }
+            }
+            return highestDependencyVersion;
+        }
 
         /*private static void RemoveCachedNuGetFiles()
         {

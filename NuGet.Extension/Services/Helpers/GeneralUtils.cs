@@ -2,8 +2,10 @@
 using Microsoft.VisualStudio.Shell.Interop;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reactive.Disposables;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 using TRD = System.Threading;
@@ -77,6 +79,15 @@ namespace NuGetTool
                 OLEMSGICON.OLEMSGICON_QUERY,
                 OLEMSGBUTTON.OLEMSGBUTTON_ABORTRETRYIGNORE,
                 OLEMSGDEFBUTTON.OLEMSGDEFBUTTON_FIRST);
+        }
+
+        public static string ComputeHash(string filePath)
+        {            
+            var sha = SHA1.Create();
+            byte[] buffer = File.ReadAllBytes(filePath);
+            byte[] hash = sha.ComputeHash(buffer);
+            string hash64 = Convert.ToBase64String(hash);
+            return hash64;
         }
 
         public class StatusReporter : IDisposable

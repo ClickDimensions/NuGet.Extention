@@ -22,5 +22,8 @@ namespace NuGetTool
 
         [JsonProperty]
         public string BackupArchiveFolder { get; set; } = string.Empty;
+
+        [JsonProperty]
+        public string TfsServerUri { get; set; } = string.Empty;
     }
 }
